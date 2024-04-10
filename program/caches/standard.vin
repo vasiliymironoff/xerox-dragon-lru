@@ -1,0 +1,61 @@
+//
+// standard.vin
+//
+// Copyright (C) 1996 - 2022 jones@scss.tcd.ie
+//
+// This program is free software; you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software Foundation;
+// either version 2 of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+// See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software Foundation Inc.,
+// 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+//
+
+//
+// 12/07/17 VivioJS
+//
+
+//
+// standard pens
+//
+Pen blackPen			= SolidPen(0, 0, BLACK);
+Pen whitePen			= SolidPen(0, 0, WHITE);
+Pen redPen				= SolidPen(0, 0, RED);
+Pen greenPen			= SolidPen(0, 0, GREEN);
+Pen bluePen				= SolidPen(0, 0, BLUE);
+Pen yellowPen			= SolidPen(0, 0, YELLOW);
+Pen magentaPen			= SolidPen(0, 0, MAGENTA);
+Pen cyanPen				= SolidPen(0, 0, CYAN);
+Pen gray32Pen			= SolidPen(0, 0, GRAY32);
+Pen gray64Pen			= SolidPen(0, 0, GRAY64);
+Pen gray96Pen			= SolidPen(0, 0, GRAY96);
+Pen gray128Pen			= SolidPen(0, 0, GRAY128);
+Pen gray160Pen			= SolidPen(0, 0, GRAY160);
+Pen gray192Pen			= SolidPen(0, 0, GRAY192);
+Pen gray224Pen			= SolidPen(0, 0, GRAY224);
+
+//
+// standard brushes
+//
+Brush blackBrush        = SolidBrush(BLACK);
+Brush whiteBrush        = SolidBrush(WHITE);
+Brush redBrush          = SolidBrush(RED);
+Brush greenBrush        = SolidBrush(GREEN);
+Brush blueBrush         = SolidBrush(BLUE);
+Brush yellowBrush       = SolidBrush(YELLOW);
+Brush magentaBrush      = SolidBrush(MAGENTA);
+Brush cyanBrush         = SolidBrush(CYAN);
+Brush gray32Brush       = SolidBrush(GRAY32);
+Brush gray64Brush       = SolidBrush(GRAY64);
+Brush gray96Brush       = SolidBrush(GRAY96);
+Brush gray128Brush      = SolidBrush(GRAY128);
+Brush gray160Brush      = SolidBrush(GRAY160);
+Brush gray192Brush      = SolidBrush(GRAY192);
+Brush gray224Brush      = SolidBrush(GRAY224);
+
+// eof

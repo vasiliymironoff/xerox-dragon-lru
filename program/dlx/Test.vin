@@ -1,0 +1,9 @@
+//
+// sample .vin file
+//
+
+class Test () {
+
+	num x = 0;
+
+}

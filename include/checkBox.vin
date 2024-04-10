@@ -1,0 +1,62 @@
+//
+// checkBox.vin
+//
+// Copyright (C) 2002 - 2018 jones@scss.tcd.ie
+//
+// This program is free software; you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software Foundation;
+// either version 2 of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+// See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software Foundation Inc.,
+// 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+//
+
+//
+// 17/12/02 first version
+// 23/01/06 Vivio 4.0
+// 30/01/10 Vivio 6.0
+// 21/07/10 pen now used to draw text
+// 07/09/10 added enter/exit handler
+// 07/19/10 use cross instead of colouring checkbox
+// 15/09/10 v now a parameter
+// 24/01/15 syntax update (constructors + declarations)
+// 20/11/16 VivioJS
+//
+
+class CheckBox(num _v, num x, num y, num sz, Pen pen, Font font, string s) {
+
+	num v = _v;
+ 	Rectangle r = Rectangle2(0, HLEFT, blackPen, whiteBrush, x, y, sz, sz, pen, font, s);
+   	r.setTxtOff(sz + 5, 0);
+    Rectangle c = Rectangle2(0, 0, 0, gray32Brush, x + 2, y + 2, sz - 4, sz - 4, 0, 0, 0);
+	v = v > 0 ? 1 : 0;
+    c.setOpacity(v);
+
+	//
+	// enter exit handler
+	//
+	when r ~> eventEE(num enter, num, num) {
+		r.setBrush(enter ? gray192Brush : whiteBrush);
+		return PROPAGATE;
+	}
+
+	//
+	// mouse button handler
+	//
+	when r ~> eventMB(num down, num flags, num, num) {
+		if (down && (flags & MB_LEFT)) {
+			v = v ? 0 : 1;
+			c.setOpacity(v);
+			return PROPAGATE;
+		}
+		return 0;
+	}
+
+}
+
+// eof

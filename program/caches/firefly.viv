@@ -1,0 +1,995 @@
+//
+// firefly.viv
+//
+// Vivio Firefly cache coherency animation
+//
+// Copyright (C) 1997 - 2022 jones@scss.tcd.ie
+//
+// This program is free software; you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software Foundation;
+// either version 2 of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+// See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software Foundation Inc.,
+// 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+//
+
+//
+// 21/02/97 first version
+// 10/06/97 used SimpleButton + corrected a bug
+// 07/12/01 added locks and parallel operation
+// 10/12/01 memory read bug - now flush cache line if dirty (rather than ~SD)
+// 07/08/02 Vivio 2.0
+// 08/08/02 bug fix - from reset if CPU0 write a3 is followed by CPU0 write a1 write NOW a shared write
+// 20/08/02 moved positioning of bus lock in write
+// 21/02/05 memory read bug - handle flush of shared cache line correctly (see bug 10/12/01)
+// 18/01/06 Vivio 4.0
+// 20/02/06 real x,y event parameters
+// 07/11/06 added extra wait(1) after getting bus lock
+// 13/03/07 return EV_FORGET in event handlers which call getURL
+// 19/05/07 logo now uses a hand cursor
+// 30/01/10 Vivio 6.0
+// 24/07/10 pen now used to draw text
+// 18/08/10 rgba
+// 19/10/10 used arrow capped Line for Bus and BusArrow
+// 08/03/15 16:10 (1024 x 640) window
+// 08/02/15 added layout constants
+// 28/03/15 improved code for multiple concurrent transactions
+// 28/03/15 added busCycles counter
+// 25/10/16 VivioJS
+// 12/11/20 added self-test
+// 09/05/21 preload fonts
+//
+
+#include "standard.vin"
+#include "simpleButton.vin"
+
+//
+// demos require font directory copied to demos directory (from www)
+//
+#preloadfont "Open Sans", "../fonts/open-sans-v18-latin-regular.woff", "{weight:400}"
+#preloadfont "Open Sans", "../fonts/open-sans-v18-latin-700.woff", "{weight:700}"
+#preloadfont "Open Sans", "../fonts/open-sans-v18-latin-italic.woff", "{style:'italic', weight:400}"
+
+const num W = 1024;					// 16:10
+const num H =  640;
+
+const num TITLEX	= 10;			// title
+const num TITLEY	= 10;
+const num TITLEH	= 40;
+
+const num BY		= 10;			// buttons
+const num BW		= 100;
+const num BH		= 30;
+
+const num INFOX		= TITLEX;		// info
+const num INFOY		= 70;
+const num INFOW		= 350;
+const num INFOH		= 150;
+
+const num MEMY		= 80;			// memory
+const num MEMW		= 180;
+const num MEMH		= 100;
+
+const num ABUSY		= 290;			// address bus
+const num ABUSW		= 12;			// width of pen used to draw address bus
+const num DBUSY		= 250;			// data bus
+const num DBUSW		= 12;			// width of pen used to draw data bus
+const num SBUSY		= 330;			// SHARED signal
+const num SBUSW		= 8;			// width of pen used to draw shared bus
+
+const num CACHEY	= 380;			// caches
+const num CACHEW	= MEMW;
+const num CACHEH	= 60;
+
+const num CPUY		= 500;			// CPUs
+const num CPUW		= CACHEW;
+const num CPUH		= MEMH;
+
+const num BUSOPY	= 206;			// bus opeartion
+
+// setVirtualWindow
+setVirtualWindow(0, 0, W, H, 1);
+
+// set ticks per second
+setTPS(20);
+
+// pens
+Pen darkGreenPen2 = SolidPen(0, 2, rgba(0, 0.6, 0), ROUND_END);
+Pen gray64Pen2 = SolidPen(0, 2, GRAY64, ROUND_END);
+Pen orangePen2 = SolidPen(0, 2, rgba(1.0, 0.65, 0), ROUND_END);
+Pen redPen2 = SolidPen(0, 2, RED, ROUND_END);
+
+// brushes
+Brush titleBrush = SolidBrush(rgba(0, 0.56, 0.16));	// Irish Green {joj 08/06/21}
+
+// fonts
+Font bf0 = Font("Open Sans", 14, 0);
+Font bf1 = Font("Open Sans", 13, 0);
+Font infoFont = Font("Open Sans", 12, 0);
+Font labelFont = Font("Open Sans", 16, SMALLCAPS);
+Font lastModifiedFont = Font("Open Sans", 10, ITALIC);
+Font titleFont = Font("Open Sans", 28, 0);
+
+// set background
+setBgBrush(gray224Brush);
+
+// title
+Rectangle title = Rectangle2(0, 0, 0, titleBrush, TITLEX, TITLEY, W/2, TITLEH, whitePen, titleFont, "Firefly Protocol");
+title.setRounded(5, 5);
+title.setTxtOff(0, 2);
+title.setPt(1, title.getTxtW() + 16, TITLEH);
+
+// simple useage infomation
+string infoStr =  "Like real hardware, the CPUs can operate in\n";
+infoStr += "parallel. Try pressing a button on different\n";
+infoStr += "CPUs \"simultaneously\". Alternatively select\n";
+infoStr += "buttons on different CPUs with the CTRL key and\n";
+infoStr += "click on the last button without CTRL to start\n";
+infoStr += "simultaneous transactions.";
+
+Rectangle2(0, HLEFT | VCENTRE | JUSTIFY, 0, 0, INFOX, INFOY, INFOW, INFOH, blackPen, infoFont, infoStr);
+
+// lastModified
+Txt(0, HRIGHT | VBOTTOM, W - 10, H - 10, gray192Pen, lastModifiedFont, timeToString(getLastModifiedMS(), "last modified %e-%b-%y"));
+
+const num NCPU 			= 3;		// number of CPUs
+const num NADDR			= 4;		// number of addresses
+const num NSET			= 2;		// number of sets in cache
+const num TICKS 		= 20;		// animation speed
+
+const num DIRTYBIT  	= 1;        // cache line states
+const num SHAREDBIT 	= 2;
+
+const num NSND			= 0;        // ~Shared & ~Dirty
+const num NSD       	= 1;        // ~Shared &  Dirty
+const num SND       	= 2;        //  Shared &  Dirty
+const num SD        	= 3;        //  Shared & ~Dirty
+
+num wValue          	= 0;        // value written into cache
+num watchCnt			= 0;		// count busWatchHelper completions
+num isShared			= 0;		// data is shared
+num interventionCycle	= 0;        // indicates cache has intervened to supply data
+num interventionData    = 0;        // intervene data (all should be the same)
+num bugLevel        	= 0;        // buglevel (0 = bug free)
+num busLock				= -1;		// bus lock
+num busCycles 			= 0;		// bus cycles counter
+
+//
+// Bus
+//
+// horizontal bus
+//
+class Bus(num x, num y, num w, num l, num fgColour) {
+
+	Pen busPen = SolidPen(0, w, fgColour,ARROW60_START | ARROW60_END);
+	Line arrow = Line2(0, 0, busPen, x, y, l, 0);
+
+	function setColour(num rgba) {
+		busPen.setRGBA(rgba);
+	}
+
+}
+
+//
+// BusArrow
+//
+// vertical double headed bus arrows
+//
+class BusArrow(num _x, num _y, num _w, num _l, num bgColour, num fgColour) {
+
+	num x = _x;
+	num y = _y;
+	num w = _w;
+	num l = _l;
+
+	Pen bgPen = SolidPen(0, w, bgColour, ARROW60_START | ARROW60_END);
+	Line bgArrow = Line2(0, 0, bgPen, x, y, 0, l);
+
+	Pen fgPen = SolidPen(0, w, fgColour, ARROW60_END);
+	Line fgArrow = Line2(0, 0, fgPen, x, y, 0, 0);
+	fgArrow.setOpacity(0);
+
+	function reset() {
+		bgArrow.setOpacity(1);
+		fgArrow.setOpacity(0);
+	}
+
+	//
+	// animates up movement on vertical bus arrow
+	//
+	// may be called with ticks = 0
+	//
+	function moveUp(num ticks, num wFlag) {
+		fgArrow.setPt(0, 0, l);
+		fgArrow.setPt(1, 0, l);
+		fgArrow.setPt(1, 0, 0, ticks, 0);		// {joj 03/09/20}
+		fgArrow.setOpacity(1, ticks/4, 0);		// {joj 02/09/20}
+		bgArrow.setOpacity(0, ticks, wFlag);	// {joj 02/09/20}
+	}
+
+	//
+	// animates down movement on vertical bus arrow
+	//
+	// may be called with ticks = 0
+	//
+	function moveDown(num ticks, num wFlag) {
+		fgArrow.setPt(0, 0, 0);
+		fgArrow.setPt(1, 0, 0);
+		fgArrow.setPt(1, 0, l, ticks, 0);		// {joj 03/09/20}
+		fgArrow.setOpacity(1, ticks/4, 0);		// {joj 02/09/20}
+		bgArrow.setOpacity(0, ticks, wFlag);	// {joj 02/09/20}
+	}
+
+}
+
+//
+// Memory
+//
+// contains 4 memory locations a0, a1, a2 & a3
+//
+class Memory(num _x, num _y) {
+
+ 	num mem[NADDR];
+	num stale[NADDR];
+	Rectangle memR[NADDR];
+
+	num x = _x;
+	num y = _y;
+
+	const num bgap = 3;
+	const num bw = MEMW-2*bgap;
+	const num bh = (MEMH-(NADDR+1)*bgap)/NADDR;
+
+	Rectangle r = Rectangle2(0, 0, blackPen, gray192Brush, x, y, MEMW, MEMH);
+	r.setRounded(4, 4);
+    Rectangle t = Rectangle2(0, 0, 0, 0, x, y-30, MEMW, 25, redPen, labelFont, "MEMORY");
+	BusArrow abus = BusArrow(x+MEMW/4, y+MEMH, ABUSW, ABUSY-y-MEMH-ABUSW/2, GRAY32, BLUE);
+	BusArrow dbus = BusArrow(x+3*MEMW/4, y+MEMH, DBUSW, DBUSY-y-MEMH-DBUSW/2, GRAY32, RED);
+
+    for (num i = 0; i < NADDR; i++) {
+        mem[i] = 0;
+        stale[i] = 0;
+		memR[i] = Rectangle2(0, 0, blackPen, whiteBrush, x+bgap, y+(i+1)*bgap+i*bh, bw, bh, blackPen, bf0, "address: a%d data: %d", i, mem[i]);
+		memR[i].setRounded(2, 2);
+        memR[i].setTxtOff(0, 1);
+    }
+
+    function highlight(num addr, num flag) {
+        if (flag == 1) {
+            memR[addr].setBrush(greenBrush);
+        } else {
+            if (stale[addr]) {
+                memR[addr].setBrush(gray192Brush);
+            } else {
+                memR[addr].setBrush(whiteBrush);
+			}
+        }
+    }
+
+    function reset() {
+        for (num i = 0; i < NADDR; i++)
+            highlight(i, 0);
+    }
+
+}
+
+//
+// data, address and shared horizontal busses
+//
+Bus ddbus = Bus(10, DBUSY, DBUSW, W-40, GRAY32);
+Txt(0, HLEFT | VTOP, 60, DBUSY-30, redPen, labelFont, "data bus");
+Bus aabus = Bus(20, ABUSY, ABUSW, W-40, GRAY32);
+Txt(0, HLEFT | VTOP, 70, ABUSY-30, bluePen, labelFont, "address bus");
+Bus sharedBus = Bus(30, SBUSY, SBUSW, W-40, GRAY32);
+Txt(0, HLEFT | VTOP, 220, SBUSY-25, magentaPen, labelFont, "shared");
+
+Memory memory = Memory((W-MEMW)/2, MEMY);
+
+//
+// busOp
+//
+Rectangle busOp = Rectangle(0, 0, blackPen, whiteBrush, W/2, BUSOPY, 0, 0, 0, 0, 0, infoFont);
+busOp.setOpacity(0);
+busOp.setRounded(4, 4);
+
+function showBusOp(string s) {
+	busOp.setTxt(s);
+	num w = busOp.getTxtW() + 16;
+	busOp.setPt(0, -w/2, -10);
+	busOp.setPt(1, w/2, 10);
+	busOp.setOpacity(1, TICKS, 0);	// {joj 02/09/20}
+}
+
+//
+// bus cycles counter
+//
+Rectangle busCyclesT = Txt(0, HLEFT, 2*W/3, (ABUSY+DBUSY)/2, 0, labelFont, "bus cycles: %d", busCycles);
+
+Cache cache[NCPU];				// caches
+CPU cpu[NCPU];					// CPUs
+
+//
+// cache object
+//
+class Cache(num x, num y, num _cpuN) {
+
+	Rectangle aR[NSET], dR[NSET], sharedR[NSET], dirtyR[NSET];
+	Line sharedX0[NSET], sharedX1[NSET], dirtyX0[NSET], dirtyX1[NSET];
+	num a[NSET], d[NSET], state[NSET];
+
+	const num cpuN = _cpuN;
+	
+	const num bgap = 3;
+	const num bw0 = 20;
+	const num bw1 = (CACHEW-5*bgap-2*bw0)/2;
+	const num bh = (CACHEH-(NSET+1)*bgap)/NSET;
+
+	BusArrow sbus = BusArrow(x+bgap+bw0/2, SBUSY+SBUSW/2, SBUSW, y-SBUSY-SBUSW/2, GRAY32, MAGENTA);
+	BusArrow abus = BusArrow(x+2*bw0+bw1/2+3*bgap, ABUSY+ABUSW/2, ABUSW, y-ABUSY-ABUSW/2, GRAY32, BLUE);
+	BusArrow dbus = BusArrow(x+2*bw0+3*bw1/2+4*bgap, DBUSY+DBUSW/2, DBUSW, y-DBUSY-DBUSW/2, GRAY32, RED);
+	BusArrow cpuabus = BusArrow(x+CACHEW/4, y+CACHEH, ABUSW, CPUY-CACHEY-CACHEH, GRAY32, BLUE);
+	BusArrow cpudbus = BusArrow(x+3*CACHEW/4, y+CACHEH, DBUSW, CPUY-CACHEY-CACHEH, GRAY32, RED);
+
+	Rectangle r = Rectangle2(0, 0, blackPen, gray192Brush, x, y, CACHEW, CACHEH);
+	r.setRounded(4, 4);
+	Rectangle t = Txt(0, HLEFT | VTOP, x+CACHEW-20, y-30, redPen, labelFont, "CACHE %d", cpuN);
+
+	busOp.moveToFront();
+	
+    for (num i = 0; i < NSET; i++) {
+        state[i] = SND;
+        sharedR[i] = Rectangle2(0, 0, blackPen, whiteBrush, x+bgap, y+(i+1)*bgap+i*bh, bw0, bh, blackPen, bf0, "S");
+		sharedR[i].setRounded(2, 2);
+		sharedX0[i] = Line2(0, 0, redPen, x+bgap, y+(i+1)*bgap+i*bh, bw0, bh);
+        sharedX0[i].setOpacity(0);
+        sharedX1[i] = Line2(0, 0, redPen, x+2*bgap+bw0, y+(i+1)*bgap+i*bh, -bw0, bh);
+        sharedX1[i].setOpacity(0);
+        dirtyR[i] = Rectangle2(0, 0, blackPen, whiteBrush, x+2*bgap+bw0, y+(i+1)*bgap+i*bh, bw0, bh, blackPen, bf0, "D");
+		dirtyR[i].setRounded(2, 2);
+		dirtyX0[i] = Line2(0, 0, redPen, x+2*bgap+bw0, y+(i+1)*bgap+i*bh, bw0, bh);
+		dirtyX1[i] = Line2(0, 0, redPen, x+2*bgap+2*bw0, y+(i+1)*bgap+i*bh, -bw0, bh);
+        a[i] = i;
+		aR[i] = Rectangle2(0, 0, blackPen, whiteBrush, x+3*bgap+2*bw0, y+(i+1)*bgap+i*bh, bw1, bh, blackPen, bf0, "a%d", i);
+		aR[i].setRounded(2, 2);
+        d[i] = 0;
+        dR[i] = Rectangle2(0, 0, blackPen, whiteBrush, x+4*bgap+2*bw0+bw1, y+(i+1)*bgap+i*bh, bw1, bh, blackPen, bf0, "0");
+		dR[i].setRounded(2, 2);
+    }
+
+    //
+    // setState
+    //
+    function setState(num set) {
+        num opacity = (state[set] & SHAREDBIT) ? 0 : 1;
+        sharedX0[set].setOpacity(opacity);
+        sharedX1[set].setOpacity(opacity);
+        opacity = (state[set] & DIRTYBIT) ? 0 : 1;
+        dirtyX0[set].setOpacity(opacity);
+        dirtyX1[set].setOpacity(opacity);
+    }
+
+	//
+	// highlight
+	//
+    function highlight(num set, num flag) {
+        if (flag == 1) {
+            sharedR[set].setBrush(greenBrush);
+            dirtyR[set].setBrush(greenBrush);
+            aR[set].setBrush(greenBrush);
+            dR[set].setBrush(greenBrush);
+        } else {
+            sharedR[set].setBrush(whiteBrush);
+            dirtyR[set].setBrush(whiteBrush);
+            aR[set].setBrush(whiteBrush);
+            dR[set].setBrush(whiteBrush);
+        }
+    }
+	
+	//
+	// reset
+	//
+	function reset() {
+		cpuabus.reset();
+		cpudbus.reset();
+		highlight(0, 0);
+		highlight(1, 0);
+	}
+
+	//
+	// resetBus
+	//
+    function resetBus() {
+        memory.abus.reset();
+        memory.dbus.reset();
+        ddbus.setColour(GRAY32);
+        aabus.setColour(GRAY32);
+        sharedBus.setColour(GRAY32);
+        memory.reset();
+        for (num i = 0; i < NCPU; i++) {
+            cache[i].abus.reset();
+            cache[i].dbus.reset();
+            cache[i].sbus.reset();
+        }
+    }
+
+	//
+	// busWatchHelper
+	//
+	// each cache (excepted initiator) must observe bus transaction
+	//
+	// if address NOT in cache, transaction can be ignored
+	//
+	// observed bus read: 
+	//		if DIRTY, supply data
+	//		set state to SHARED
+	//		assert SHARED signal
+	//
+	// observed bus write:
+	//		update cache data
+	//		assert SHARED signal
+	//
+    function busWatchHelper(num addr, num rw, num data) {
+
+        num set = addr % NSET;
+
+		//
+		// address (and data) from bus to cache
+		//
+		if (rw && a[set] == addr) {
+ 			dbus.moveDown(TICKS, 0);
+			sbus.moveUp(TICKS, 0);
+		}
+        abus.moveDown(TICKS, 1);
+
+		//
+		// ignore if address NOT in cache
+		//
+        if (a[set] != addr) {
+			watchCnt--;
+            return;
+		}
+
+		//
+		// data now SHARED
+		//
+		state[set] |= SHAREDBIT;
+		highlight(set, 1);
+
+		//
+		// supply data if read and DIRTY (intervention cycle)
+		//
+		if (interventionCycle) {
+			showBusOp(sprintf("CPU %d reads a%d from memory - CPU(s) intervene and supply data", cpuN, addr));
+			dbus.moveUp(TICKS, 0);
+		}
+
+		//
+		// if write, update data and...
+		// clear DIRTY bit (as data will be written ti memory)
+		//
+		if (rw == 1) {
+			d[set] = data;
+			dR[set].setTxt("%d", data);
+			state[set] = state[set] & ~DIRTYBIT; // clear dirty bit
+		}
+
+		//
+		// update animation state
+		//
+        setState(set);
+
+		//
+		// finished
+		//
+		watchCnt--;
+
+		//
+		// drive SHARED signal
+		//
+		if (rw == 0)
+			sbus.moveUp(TICKS, 0);
+
+    }
+
+	//
+	// busWatch
+	//
+    function busWatch(num addr, num cpu, num rw, num data) {
+
+		num set = addr % NSET;
+
+		isShared = 0;
+        interventionCycle = 0;
+
+		for (num i = 0; i < NCPU; i++) {
+            if (i == cpu)
+				continue;
+			if (cache[i].a[set] == addr) {
+				isShared = 1;
+				interventionCycle = (rw == 0) && cache[i].state[set] & DIRTYBIT;
+				interventionData = cache[i].d[set];
+				break;
+			}
+		}
+
+		//
+		// address (and data) from bus to memory
+		//
+		memory.abus.moveUp(TICKS, 0);
+		if (rw && interventionCycle == 0)
+			memory.dbus.moveUp(TICKS, 0);
+			
+		watchCnt = NCPU - 1;
+        for (i = 0; i < NCPU; i++) {
+            if (i != cpu)
+                fork(cache[i].busWatchHelper(addr, rw, data));
+		}
+
+		while (watchCnt)
+			wait(1);
+
+	}
+		
+	//
+	// flush
+	//
+    function flush(num cpu, num addr) {
+        num set = addr % NSET;
+        num flushaddr = a[set];
+        abus.moveUp(TICKS, 0);
+        dbus.moveUp(TICKS, 1);
+        aabus.setColour(BLUE);
+        ddbus.setColour(RED);
+        busWatch(addr, cpu, 1, d[set]);      	// bug fix {joj 21/2/05}
+		if (isShared)
+			sharedBus.setColour(MAGENTA);
+		sbus.moveDown(TICKS, 1);
+        state[set] = state[set] & ~DIRTYBIT;    // clear dirty bit
+        setState(set);
+        memory.stale[flushaddr] = 0;
+        memory.memR[flushaddr].setBrush(whiteBrush);
+        memory.mem[flushaddr] = d[set];
+        memory.memR[flushaddr].setTxt("address: a%d data: %d", flushaddr, memory.mem[flushaddr]);
+    }
+
+	//
+	// getBusLock
+	//
+	// NB: cpu may already have lock
+	//
+	function getBusLock() {
+		if (busLock == cpuN)
+			return;
+		while (busLock >= 0)
+			wait(1);
+		busLock = cpuN;
+	}
+
+	//
+	// releaseBusLock
+	//
+	function releaseBusLock() {
+		busLock = -1;
+		wait(1);		// allow other CPUs get busLock
+	}
+
+	//
+	// read
+	//
+	// miss: read data from memory
+	//		 may need to flush DIRTY cache line
+	//
+	// hit: read data from cache
+	//	
+    function read(num addr, num animateCPUBus) {
+
+        num set = addr % NSET;
+
+		if (busLock == -1)
+			resetBus();
+
+        if (animateCPUBus)
+            cpuabus.moveUp(TICKS, 1);
+		
+		//
+		// hit
+		//
+		if (a[set] == addr) {
+ 			if (animateCPUBus)
+            	cpudbus.moveDown(TICKS, 1);
+			return;
+		}
+
+		//
+		// miss
+		//
+		// flush if cache line DIRTY, 
+		//
+        if ((state[set] & DIRTYBIT) && (bugLevel != 2)) {
+           	getBusLock();
+			showBusOp(sprintf("CPU %d flushes a%d from its cache to memory", cpuN, addr));
+			busCycles++;
+			busCyclesT.setTxt("bus cycles: %d", busCycles);
+ 			resetBus();
+            flush(cpuN, a[set]);
+           releaseBusLock();	// allow other CPUS get bus
+        }
+
+        highlight(set, 1);
+        getBusLock();
+		resetBus();
+
+		showBusOp(sprintf("CPU %d reads a%d from memory", cpuN, addr));
+		busCycles++;
+		busCyclesT.setTxt("bus cycles: %d", busCycles);
+
+		//
+		// address to bus
+		//
+		abus.moveUp(TICKS, 1);
+		aabus.setColour(BLUE);
+
+		//
+		// fork bus watchers and wait to finish
+		//
+		busWatch(addr, cpuN, 0, 0);
+
+		//
+		// return data to cache 
+		//
+		if (interventionCycle) {
+			wait(TICKS);
+		} else {
+			memory.dbus.moveDown(TICKS, 1);
+		}
+		if (isShared)
+			sharedBus.setColour(MAGENTA);
+
+		ddbus.setColour(RED);
+		sbus.moveDown(TICKS, 0);
+		dbus.moveDown(TICKS, 1);
+
+		//
+		// check if cache has intervened to supply data
+		// data not written to memory
+		//
+		if (interventionCycle) {
+			d[set] = interventionData;
+			state[set] = SD;
+		} else {
+			memory.highlight(addr, 1);
+			d[set] = memory.mem[addr];
+			state[set] = (isShared) ? SND : NSND;
+		}
+
+		a[set] = addr;
+        aR[set].setTxt("a%d", addr);
+		dR[set].setTxt("%d", d[set]);
+		setState(set);
+		releaseBusLock();
+        if (animateCPUBus)
+            cpudbus.moveDown(TICKS, 1);
+
+    }
+
+    //
+    // write
+    //
+    function write(num addr) {
+
+        num set = addr % NSET;
+
+		if (busLock == -1)
+			resetBus();
+
+        cpudbus.moveUp(TICKS, 0);
+        cpuabus.moveUp(TICKS, 1);
+        highlight(set, 1);
+
+        //
+        // miss: read data first
+		//		 may need to flush DIRTY cache line
+        //
+        if (a[set] != addr)
+            read(addr, 0);
+        
+		wValue++;
+
+        //
+        // write through if SHARED
+        //
+        if ((state[set] & SHAREDBIT) && (bugLevel != 1)) {
+
+            getBusLock();
+            resetBus();
+		
+			showBusOp(sprintf("CPU %d writes %d to memory address a%d", cpuN, wValue, addr));
+			busCycles++;
+			busCyclesT.setTxt("bus cycles: %d", busCycles);
+
+            a[set] = addr;
+            aR[set].setTxt("a%d", addr);
+            d[set] = wValue;
+            dR[set].setTxt("%d", wValue);
+
+			//
+			// address and data to bus
+			//
+            abus.moveUp(TICKS, 0);
+            dbus.moveUp(TICKS, 1);
+            aabus.setColour(BLUE);
+            ddbus.setColour(RED);
+            busWatch(addr, cpuN, 1, d[set]);
+			sbus.moveDown(TICKS, 1);
+			if (isShared) {
+				sharedBus.setColour(MAGENTA);
+				state[set] = SND;
+			} else {
+				state[set] = NSND;
+			}
+            setState(set);
+            memory.mem[addr] = d[set];
+            memory.memR[addr].setTxt("address: a%d data: %d", addr, memory.mem[addr]);
+            memory.stale[addr] = 0;
+            memory.highlight(addr, 1);
+			releaseBusLock();
+			return;
+
+        }
+
+		//
+		// write back if NOT SHARED 
+		//
+        a[set] = addr;
+		aR[set].setTxt("a%d", addr);
+		d[set] = wValue;
+		dR[set].setTxt("%d", wValue);
+		state[set] = NSD;
+		setState(set);
+		memory.stale[addr] = 1;
+		memory.memR[addr].setBrush(gray192Brush);
+
+    }
+
+}
+
+//
+// caches
+//
+cache[0] = Cache((W-5*CACHEW)/2, CACHEY, 0);
+cache[1] = Cache((W-5*CACHEW)/2+2*CACHEW, CACHEY, 1);
+cache[2] = Cache((W-5*CACHEW)/2+4*CACHEW, CACHEY, 2);
+
+const num bgap = 3;
+const num bw = (CPUW-3*bgap)/2;
+const num bh = (CPUH-(NADDR+1)*bgap)/NADDR;
+	
+//
+// CPU
+//
+class CPU(num x, num y, num _cpuN) {
+
+	const num cpuN = _cpuN;
+	num buttonLock = 0;
+	CPUButton selected;			// CPUButton
+
+	//
+	// CPUButton
+	//
+	class CPUButton(num _rw, num x, num y, num _addr) 
+		extends SimpleButton(x, y, bw, bh, whiteBrush, gray224Brush, gray64Pen2, gray128Pen, blackPen, bf0, bf1, "") {
+
+		num rw = _rw;
+		num addr = _addr;
+
+		setTxt(rw ? "write a%d" : "read a%d", addr);
+
+		//
+		// select
+		//
+		function select() {
+			if (selected == this) {
+ 				selected.setPen(gray64Pen2);
+ 				selected = 0;
+			} else {
+				if (selected)
+					selected.setPen(gray64Pen2);
+				selected = this;
+ 				selected.setPen(orangePen2);
+			}
+		}
+
+		//
+		// resetCPUs
+		//
+		function resetCPUs(num cpuN) {
+ 			for (num i = 0; i < NCPU; i++) {
+				if (cpu[i].selected == 0) {
+					cache[i].reset();
+					cpu[i].r.setPen(blackPen);
+					cpu[i].resetButtons();
+				}
+ 			}
+		}
+
+		//
+		// cpuButtonAction
+		//
+		function cpuButtonAction() {
+			//debug("cpuButtonAction cpuN=%d". cpuN);
+			resetCPUs(cpuN);
+			if (busLock == -1)			// {joj 9/12/15}
+				cache[cpuN].resetBus();	// {joj 9/12/15}
+			buttonLock = 1;				// {joj 13/7/17}
+			cache[cpuN].reset();
+			r.setPen(darkGreenPen2);
+			setPen(redPen2);
+  			if (rw) {
+				cache[cpuN].write(addr);
+			} else {
+				cache[cpuN].read(addr, 1);
+			}
+ 			resetCPUs(cpuN);
+ 			selected = 0;				// NB: after resetCPUs()
+ 			checkPoint();
+ 			buttonLock = 0;
+		}
+
+		//
+		// mouse button event handler
+		//
+		when ~> eventMB(num down, num flags, num, num) {
+			//debug("eventMB down=%08x flags=%08x", down | 0, flags | 0);
+			num rr = 0;
+			if (down && (flags & MB_LEFT)) {
+ 				rr |= REMEMBER;
+ 				if (buttonLock)
+ 					return rr;
+				for (num i = 0; i < NCPU; i++)
+					cpu[i].resetButtons();
+				if (flags & MB_CTRL) {
+					select();
+				} else {
+					selected = this;
+					startAction();
+				}
+			}
+			return rr;
+		}
+
+	}
+
+	CPUButton rb[NADDR];
+	CPUButton wb[NADDR];
+	
+	Rectangle r = Rectangle2(0, 0, blackPen, gray192Brush, x, y, CPUW, CPUH);
+	r.setRounded(4, 4);
+	Txt(0, HLEFT | VTOP, x+CPUW-20, y-30, redPen, labelFont, "CPU %d", cpuN);
+
+	//
+	// resetButtons
+	//
+	function resetButtons() {
+		for (num i = 0; i < NADDR; i++) {
+			if (selected != rb[i])
+				rb[i].setPen(gray64Pen2);
+			if (selected != wb[i])
+				wb[i].setPen(gray64Pen2);
+		}
+	}
+
+	//
+	// cpuAction
+	//
+	function cpuAction() {
+		if (selected && buttonLock == 0)
+			selected.cpuButtonAction();
+	}
+	
+	//
+	// create red and write button
+	//
+	for (num i = 0; i < NADDR; i++) {
+		rb[i] = CPUButton(0, x+bgap, y+(i+1)*bgap+i*bh, i);
+		wb[i] = CPUButton(1, x+bgap+bw+bgap, y+(i+1)*bgap+i*bh, i);
+	}
+
+}
+
+//
+// CPUs
+//
+cpu[0] = CPU((W-5*CPUW)/2, CPUY, 0);
+cpu[1] = CPU((W-5*CPUW)/2+2*CPUW, CPUY, 1);
+cpu[2] = CPU((W-5*CPUW)/2+4*CPUW, CPUY, 2);
+
+//
+// startAction
+//
+function startAction() {
+	start();
+	for (num i = 0; i < NCPU; i++)
+		fork(cpu[i].cpuAction());
+}
+
+//
+// buttons
+//
+SimpleButton resetButton = SimpleButton(W-2*BW-2*BW/8, BY, BW, BH, whiteBrush, gray224Brush, gray64Pen2, gray128Pen, blackPen, bf0, bf1, "reset");
+SimpleButton bugButton = SimpleButton(W-BW-BW/8, BY, BW, BH, whiteBrush, gray224Brush, gray64Pen2, gray128Pen, blackPen, bf0, bf1, "bug free!");
+SimpleButton helpButton = SimpleButton(W-2*BW-2*BW/8, BY+BH+BH/4, BW, BH, whiteBrush, gray224Brush,gray64Pen2, gray128Pen, blackPen, bf0, bf1, "help");
+SimpleButton vivioButton = SimpleButton(W-BW-BW/8, BY+BH+BH/4, BW, BH, whiteBrush, gray224Brush,gray64Pen2, gray128Pen, blackPen, bf0, bf1, "VivioJS help");
+
+//
+// resetButton event handler
+//
+when resetButton ~> eventMB(num down, num flags, num, num) {
+	if (down && (flags & MB_LEFT)) {
+		//arg["arg1"] = 0;
+		reset();
+	}
+	return 0;
+}
+
+//
+// bugButton event handler
+//
+when bugButton ~> eventMB(num down, num flags, num, num) {
+	if (down && (flags & MB_LEFT)) {
+		if (bugLevel == 2) {
+			bugLevel = 0;
+			bugButton.setTxt("bug free!");
+		} else {
+			bugLevel++;
+			bugButton.setTxt("bug %d", bugLevel-1);
+		}
+	}
+	return 0;
+}
+
+//
+// helpButton event handler
+//
+when helpButton ~> eventMB(num down, num flags, num, num) {
+	if (down && (flags & MB_LEFT))
+		getURL("fireflyHelp.htm");
+	return 0;
+}
+
+//
+// vivioButton event handler
+//
+when vivioButton ~> eventMB(num down, num flags, num, num) {
+	if (down && (flags & MB_LEFT))
+		getURL("../vivio.htm");
+	return 0;
+}
+
+//
+// self test
+//
+if (getArgAsNum("selfTest", 0)) {
+
+	// see fireflyHelp.htm
+
+	cpu[0].rb[0].cpuButtonAction();	// 1
+	cpu[0].rb[2].cpuButtonAction();	// 2
+	cpu[0].wb[2].cpuButtonAction();	// 3
+	cpu[0].wb[2].cpuButtonAction();	// 4
+	cpu[1].rb[2].cpuButtonAction();	// 5
+	cpu[1].wb[2].cpuButtonAction();	// 6
+	cpu[1].wb[2].cpuButtonAction();	// 7
+	cpu[1].rb[0].cpuButtonAction();	// 8
+	cpu[0].wb[2].cpuButtonAction();	// 9
+	cpu[0].wb[2].cpuButtonAction();	// 10
+
+	debug("FINISHED tick=%d", getTick());
+
+}
+
+// eof

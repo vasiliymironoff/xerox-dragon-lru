@@ -1,0 +1,326 @@
+//
+// instructionmemory.vin
+//
+// Simulation of a DLX/MIPS CPU
+// Edsko de Vries Summer Internship 2003
+//
+// Copyright (C) 2003 - 2022 Edsko de Vries and jones@scss.tcd.ie
+//
+// This program is free software; you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software Foundation;
+// either version 2 of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+// See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software Foundation Inc.,
+// 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+//
+
+Pen lightPen = SolidPen(DOT, 1, rgba(0.75, 0.75, 0.75));
+Pen redArrow = SolidPen(SOLID, 1, RED, ARROW60_END);
+
+//
+// 13/02/19 set instruction using a drop down menus
+// 03/01/20 derived Instruction from Rectangle to simplify event handling
+//
+
+Menu opMenu = Menu(GRAY192, WHITE, menuFont);	// {joj 15/09/20}
+opMenu.addItem("NOP", NOP);
+opMenu.addItem("ADD", ADD);
+opMenu.addItem("SUB", SUB);
+opMenu.addItem("AND", AND);
+opMenu.addItem("OR", OR);
+opMenu.addItem("XOR", XOR);
+opMenu.addItem("SLL", SLL);
+opMenu.addItem("SRL", SRL);
+opMenu.addItem("SLT", SLT);
+opMenu.addItem("SGT", SGT);
+opMenu.addItem("SLE", SLE);
+opMenu.addItem("SGE", SGE);
+opMenu.addItem("ADDi", ADDi);
+opMenu.addItem("SUBi", SUBi);
+opMenu.addItem("ANDi", ANDi);
+opMenu.addItem("ORi", ORi);
+opMenu.addItem("XORi", XORi);
+opMenu.addItem("SLLi", SLLi);
+opMenu.addItem("SRLi", SRLi);
+opMenu.addItem("SLTi", SLTi);
+opMenu.addItem("SGTi", SGTi);
+opMenu.addItem("SLEi", SLEi);
+opMenu.addItem("SGEi", SGEi);
+opMenu.addItem("LD", LD);
+opMenu.addItem("ST", ST);
+opMenu.addItem("BEQZ", BEQZ);
+opMenu.addItem("BNEZ", BNEZ);
+opMenu.addItem("J", J);
+opMenu.addItem("JAL", JAL);
+opMenu.addItem("JR", JR);
+opMenu.addItem("JALR", JALR);
+opMenu.addItem("HALT", HALT);
+
+Menu regMenu = Menu(GRAY192, WHITE, menuFont);	// {joj 15/09/20}
+regMenu.addItem("R0", 0);
+regMenu.addItem("R1", 1);
+regMenu.addItem("R2", 2);
+regMenu.addItem("R3", 3);
+
+//
+// instruction
+//
+// TODO: should be able to pass font into Rectangle constructor - incorrectly uses Rectangle.font??
+//
+class Instruction(num _x, num _y, num _w, num _h, num _addr, Font font) extends Rectangle(valuesLayer, 0, 0, whiteBrush, _x,_y, 0,0, _w,_h) {
+
+	num x = _x;
+	num y = _y;
+	num w = _w;
+	num h = _h;
+	num addr = _addr;
+
+    num vIns = 0, vRdt = 0, vRs1 = 0, vRs2 = 0;
+    num opTypeRdt = 0, opTypeRs1 = 0, opTypeRs2 = 0;
+    num clk;
+
+    num fw = w / 6;
+
+    Rectangle adr = Rectangle2(valuesLayer, 0, 0, 0, x, y, fw, h, 0, font, "%02X", addr);
+    Rectangle ins = Rectangle2(valuesLayer, HLEFT, 0, 0, x + fw, y, 2 * fw, h, blackPen, font, " NOP"); // {joj 03/01/20}
+    Rectangle rdt = Rectangle2(valuesLayer, 0, 0, 0, x + 3 * fw, y, fw, h, blackPen, font, "-");
+    Rectangle rs1 = Rectangle2(valuesLayer, 0, 0, 0, x + 4 * fw, y, fw, h, blackPen, font, "-");
+    Rectangle rs2 = Rectangle2(valuesLayer, 0, 0, 0, x + 5 * fw, y, fw, h, blackPen, font, "-");
+
+    Rectangle dot = Rectangle2(valuesLayer, 0, 0, redBrush, x+fw*0.8, y+2, h/2, h/2);	// {joj 30/10/06}
+    dot.setOpacity(0);                                                                  // {joj 30/10/06}
+
+    Line arrowDown = Line(valuesLayer, 0, redArrow,		// {joj 17/10/16}
+        0, 0,											// {joj 17/10/16}
+		x + w + 2, y + h * 0.5,
+        5, 0,
+        0, 0,
+        0, 0
+    );
+
+    Line arrowUp = Line(valuesLayer, 0, redArrow,       // {joj 17/10/16}
+        0, 0,											// {joj 17/10/16}
+		x - 2, y + h * 0.5,
+		-5, 0,
+        0, 0,
+		0, 0
+    );
+
+    arrowDown.setOpacity(0);
+    arrowUp.setOpacity(0);
+
+ 	when ~> eventEE(num enter, num, num) {						// {joj 03/01/20} 
+		setBrush(enter ? gray192Brush : whiteBrush);			// {joj 11/06/21}
+		//debug("handle ~> eventEE enter=%d", enter);
+		return PROPAGATE;
+    }
+
+    when ins ~> eventEE(num enter, num, num) {					// {joj 24/09/17}
+		ins.setTxtPen(enter ? redPen : blackPen);				// {joj 03/01/20}
+		//debug("handle ins ~> eventEE enter=%d", enter);		
+		return PROPAGATE;
+    }
+
+    when rdt ~> eventEE(num enter, num, num) {					// {joj 24/09/17}
+        if (opTypeRdt != OP_TYPE_UNUSED) {
+            rdt.setTxtPen(enter ? redPen : blackPen);			// {joj 03/01/20}
+        } else {
+            rdt.setTxtPen(blackPen);							// {joj 03/01/20}
+		}
+		return PROPAGATE;
+    }
+
+    when rs1 ~> eventEE(num enter, num, num) {					// {joj 24/09/17}
+        if (opTypeRs1 != OP_TYPE_UNUSED) {
+            rs1.setTxtPen(enter ? redPen : blackPen);			// {joj 03/01/20}
+        } else {
+            rs1.setTxtPen(blackPen);							// {joj 03/01/20}
+		}
+		return PROPAGATE;
+    }
+
+    when rs2 ~> eventEE(num enter, num, num) {					// {joj 24/09/17}
+        if (opTypeRs2 != OP_TYPE_UNUSED) {
+            rs2.setTxtPen(enter ? redPen : blackPen);			// {joj 03/01/20}
+        } else {
+            rs2.setTxtPen(blackPen);							// {joj 03/01/20}
+		}
+		return PROPAGATE;
+    }
+
+    num function getOpcode() {                                  // {joj 27/10/06}
+        return vIns << 24 | vRdt << 16 | vRs1 << 8 | vRs2;      // {joj 27/10/06}
+    }                                                           // {joj 27/10/06}
+
+    function initRegs(num remember) {                           // {joj 27/10/06}
+
+        num offset;
+
+        ins.setTxt("%c%s", 32, instrNames[vIns]);
+
+        opTypeRdt = instrOpTypeRdt(vIns);
+        opTypeRs1 = instrOpTypeRs1(vIns);
+        opTypeRs2 = instrOpTypeRs2(vIns);
+
+        if (opTypeRs2 == OP_TYPE_REG)
+            vRs2 = (vRs2 % 4);
+
+        if (opTypeRdt == OP_TYPE_UNUSED) rdt.setTxt("-") else rdt.setTxt("R%d", vRdt);
+        if (opTypeRs1 == OP_TYPE_UNUSED) rs1.setTxt("-") else rs1.setTxt("R%d", vRs1);
+
+        if (opTypeRs2 == OP_TYPE_UNUSED)
+            rs2.setTxt("-")
+        else if (opTypeRs2 == OP_TYPE_REG)
+            rs2.setTxt("R%d", vRs2)
+        else
+            rs2.setTxt("%02X", vRs2);
+
+        if (instrIsBranch(vIns) || isJorJAL(vIns)) {
+            if (vRs2 & 0x80) {									// Jump back
+                offset = (se8(vRs2)/4)*h + h/2;					// relative
+                arrowUp.setPt(2, x - 7, y + offset);			// {joj 05/10/16}
+                arrowUp.setPt(3, x - 2, y + offset);			// {joj 05/10/16}
+                arrowUp.setOpacity(1);
+                arrowDown.setOpacity(0);
+            } else {											// Jump forwrd
+                offset = (vRs2/4)*h + h/2;						// relative jump
+                arrowDown.setPt(2, x + w + 7, y + offset);		// {joj 05/10/16}
+                arrowDown.setPt(3, x + w + 2, y + offset);		// {joj 05/10/16}
+                arrowDown.setOpacity(1);
+                arrowUp.setOpacity(0);
+            }
+        } else {
+            arrowUp.setOpacity(0);
+            arrowDown.setOpacity(0);
+        }
+
+        if (remember) {                                                 // {joj 27/10/06}
+            string s = sprintf("i%d", addr / 4);						// {joj 31/01/01}
+			setArg(s, getOpcode().toString());							// {joj 06/11/16}
+            example = 0;                                                // {joj 27/10/06}
+			setArg("example", example.toString());						// {joj 06/11/16}
+        }
+
+    }
+
+    function setValue(num instr, num rdt, num rs1, num rd2imm) {
+        vIns = instr;
+        vRdt = rdt;
+        vRs1 = rs1;
+        vRs2 = rd2imm & 0xff;                                           // {joj 01/11/06}
+        initRegs(0);                                                    // {joj 27/10/06}
+    }
+
+    function setOpcode(num opcode) {
+        vIns = (opcode & 0xFF000000) >> 24;
+        vRdt = (opcode & 0x00FF0000) >> 16;
+        vRs1 = (opcode & 0x0000FF00) >> 8;
+        vRs2 = (opcode & 0x000000FF);
+        initRegs(0);                                                    // {joj 27/10/06}
+    }
+
+    when ins ~> eventMB(num down, num flags, num x, num y) {			// {joj 24/09/17}
+        if (!locked) {													// {joj 09/06/21}
+            if (down) {
+				num v = opMenu.show(x, y);								// {joj 15/09/20}
+				vIns = (v == -1) ? vIns : v;							// {joj 15/02/19}
+				ins.setTxtPen(blackPen);								// {joj 03/01/20}
+            }
+            initRegs(1);
+        }
+		return 0;
+    }
+
+    when rdt ~> eventMB(num down, num flags, num x, num y) {			// {joj 24/10/17}
+        if (!locked && down && opTypeRdt == OP_TYPE_REG) {				// {joj 11/06/21}
+ 			num v = regMenu.show(x, y);									// {joj 15/09/20}
+			vRdt = (v == -1) ? vRdt : v;								// {joj 15/02/19}
+			rdt.setTxtPen(blackPen);									// {joj 03/01/20}
+  			initRegs(1);
+		}
+		return 0;
+    }
+
+	when rs1 ~> eventMB(num down, num flags, num x, num y) {			// {joj 24/10/17}
+        if (!locked && down && opTypeRs1 == OP_TYPE_REG) {				// {joj 11/06/21}
+ 			num v = regMenu.show(x, y);									// {joj 15/09/19}
+			vRs1 = (v == -1) ? vRs1 : v;								// {joj 15/02/19}
+			rs1.setTxtPen(blackPen);									// {joj 03/01/20}
+ 			initRegs(1);
+		}
+		return 0;
+    }
+
+	when rs2 ~> eventMB(num down, num flags, num x, num y) {			// {joj 24/10/17}
+        if (!locked && down) {											// {joj 09/06/21}
+			num d;														// {joj 11/06/21}
+            if (flags & MB_LEFT) {
+                if (opTypeRs2 == OP_TYPE_REG) {
+					vRs2 = regMenu.show(x, y);							// {joj 11/06/21}
+                } else if (opTypeRs2 == OP_TYPE_IMM) {
+					if (flags & MB_SHIFT) {								// {joj 11/06/21}
+						vRs2 = (vRs2 + 16 ) & 0xff;						// {joj 11/06/21}
+					} else {											// {joj 11/06/21}
+						d = ((vRs2 & 0x0f) + 1) & 0x0f;					// {joj 11/06/21}
+						vRs2 = (vRs2 & ~0x0f) | d;						// {joj 11/06/21}
+					}													// {joj 11/06/21}
+                }
+			} else if (flags & MB_RIGHT) {
+				if (opTypeRs2 == OP_TYPE_IMM) {
+                    clk = timeMS();
+                    if (flags & MB_SHIFT) {								// {joj 11/06/21}
+						d = (((vRs2 >> 4) - 1) & 0x0f) << 4;			// {joj 11/06/21}
+						vRs2 = (vRs2 & ~0xf0) | d;						// {joj 11/06/21}
+					} else {											// {joj 11/06/21}
+						d = ((vRs2 & 0x0f) - 1) & 0x0f;					// {joj 11/06/21}
+						vRs2 = (vRs2 & ~0x0f) | d;						// {joj 11/06/21}
+					}													// {joj 11/06/21}
+                }
+            }
+            initRegs(1);
+        }
+    }
+
+}
+
+//
+// Instruction Memory
+//
+class InstructionMemory(num x, num y, num w, num h) {
+
+    num ih = (h - 4) / 32;
+    Instruction instruction[32];
+    num active = 31;
+
+    Rectangle r = Rectangle2(0, 0, blackPen, 0, x, y, w, h);
+	r.setRounded(2, 2);														// {joj 16/10/16}
+
+    for (num lp1 = 0; lp1 < 32; lp1++)
+    	instruction[lp1] = Instruction(x + 1, y + 1 + lp1 * ih, w - 2, ih, lp1 * 4, font);
+
+    function setValue(num addr, num instr, num rdt, num rs1, num rs2imm) {
+        instruction[addr / 4].setValue(instr, rdt, rs1, rs2imm);
+    }
+
+    num function getOpcode(num addr) {                                  // {joj 27/10/06}
+        return instruction[addr / 4].getOpcode();                       // {joj 27/10/06}
+    }                                                                   // {joj 27/10/06}
+
+    function setOpcode(num addr, num opcode) {
+        instruction[addr / 4].setOpcode(opcode);
+    }
+
+    function setActive(num addr) {
+        instruction[active].dot.setOpacity(0);                          // {joj 30/10/06}
+        active = addr / 4;
+        instruction[active].dot.setOpacity(1);                        	// {joj 30/10/06}
+    }
+
+}
+
+// eof

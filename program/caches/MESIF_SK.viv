@@ -1,0 +1,1812 @@
+//
+// MESIF_SK.viv
+//
+// Vivio MESIF cache coherency protocol animation
+//
+// Copyright (C) 2008 - 2022 Stephen Kirk and jones@scss.tcd.ie
+//
+// This program is free software; you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software Foundation;
+// either version 2 of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+// See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software Foundation Inc.,
+// 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+//
+//
+// 30/04/08	first version Stephen Kirk BAI FYP 2008
+// 17/12/20 VivioJS
+//
+
+//
+// include files
+//
+include "standard.vin"
+include "simpleButton.vin"
+
+const num W = 3200;	// 16:10
+const num H = 2100;
+
+setVirtualWindow(0, 0, W, H, 1);
+setTPS(20);
+
+//
+// fonts
+//
+Font bf0 = Font("Calibri", 50);
+Font bf1 = Font("Calibri", 40);
+Font smallFont = Font("Calibri", 14, 0);
+Font hintFont = Font("Calibri", 50, 0);
+Font hintFont2 = Font("Calibri", 40, 0);
+Font titleFont = Font("Calibri", 60, 0);
+Font packetFont = Font("Calibri", 30, 0);
+Font f1 = Font("Calibri", 40, 0);
+Font f2 = Font("Calibri", 40, 0);
+
+//
+// brushes
+//
+Brush brushsH[5];	// for memory
+Brush brushsS[5];	// for memory
+brushsH[0]= SolidBrush(rgba(1.0, 1.0, 0.6));
+brushsH[1]= SolidBrush(rgba(1.0, 0.7, 0.7));
+brushsH[2]= SolidBrush(rgba(0.7, 1.0, 0.7));
+brushsH[3]= SolidBrush(rgba(0.6, 0.7, 1.0));
+brushsH[4]= SolidBrush(rgba(1.0, 0.8, 0.2));
+
+brushsS[0]= SolidBrush(rgba(1.0, 1.0, 0.0));
+brushsS[1]= SolidBrush(rgba(0.8, 0.0, 0.0));
+brushsS[2]= SolidBrush(rgba(0.0, 1.0, 0.0));
+brushsS[3]= SolidBrush(rgba(0.0, 0.0, 1.0));
+brushsS[4]= SolidBrush(rgba(1.0, 0.7, 0.0));
+
+Brush navyBrush = SolidBrush(rgba(0, 0, 0.4));
+
+//
+// set background
+//
+setBgBrush(gray224Brush);
+
+num cpusActive = 0;
+num j;
+
+//
+// a lock is needed for every memory location as multiple processors may access it at the same time
+//
+num memLock[20];
+for (j = 0; j < 20; j++)
+	memLock[j]=0;
+
+num offset = 50;
+
+//
+// title
+//
+Rectangle infoRect = Rectangle2(0, 0, blackPen, whiteBrush,  W - 920 + offset*2, 450, 520, 600);
+Rectangle title = Rectangle2(0, VCENTRE, 0, navyBrush, W-1500+offset*2, 100, 1000, 250, whitePen, titleFont, "MESIF Cache Coherency Protocol");
+title.setTxtOff(2, 1);
+
+//information box
+string str1 =  "Packet Information\n";
+string str = "READ-Read from memory\n            request\n";
+str += "CNCL-Cancel memory\n            access\n";
+str += "ACK-acknowledge to\n            remove Lock\n";
+str += "PR-Probe\n";
+str += "PRI-Probe invalidate\n";
+str += "FL-Flush\n";
+str += "FLA-Flush acknowledge\n";
+//str += "M-memory data\n";
+str += "DataX-data in state X\n";
+
+Rectangle hint = Txt(0, HLEFT | VTOP, W-890+offset*2, 450, redPen, hintFont, str1);
+Rectangle hint2 = Txt(0, HLEFT | VTOP, W-860+offset*2, 520, blackPen, hintFont2, str);
+
+const num NCPU = 5;			// number of CPUs
+const num TICKS = 20;		// animation speed
+
+const num INVALID = 0;		// MESIF cache line states
+const num SHARED = 1;
+const num EXCLUSIVE = 2;
+const num MODIFIED = 3;
+const num FORWARD = 4;
+
+num currentProcessNo = 0;
+num DRAMLock[5];
+num invalidateRestart[20];
+
+//
+// Queue
+//
+class Queue() {
+	
+	num endPosition = 0;
+	num queue[5];
+	num queueActive = 0;
+		
+	for (num i = 0; i < 5;i++)
+		queue[i] = -1;
+	
+	//
+	// Queue.addProcess
+	//
+	function addProcess(num cpuNo) {
+		queue[endPosition] = cpuNo;
+		queueActive = 1;
+		endPosition++;
+		if (endPosition == 5)
+			endPosition--;
+	}
+
+	//
+	// Queue.removeProcess
+	//
+	function removeProcess() {
+		for (i = 0; i < 4; i++)
+			queue[i] = queue[i+1];
+		endPosition--;
+		if (endPosition == 0)
+			queueActive = 0;
+		if (endPosition == -1)
+			endPosition=0;
+	}
+
+	//
+	// Queue.checkProcess
+	//
+	num function checkProcess(num cpuNo) {
+		for(i = 0; i < endPosition; i++) {
+			if (queue[i] == cpuNo)
+				return 1;
+		}
+		return 0;
+	}
+	
+	//
+	// Queue.emptyQueue
+	//
+	function emptyQueue() {
+		endPosition = 0;
+		queueActive = 0;
+	}
+	
+	//
+	// Queue.deleteProcess
+	//
+	function deleteProcess(num cpuNo) {
+		for(i = 0; i < endPosition; i++) {
+			if(queue[i] == cpuNo) {
+				for(j = i; j < endPosition; j++)
+					queue[j] = queue[j+1];
+				endPosition--;
+				if (endPosition == 0)
+					queueActive = 0;
+				if (endPosition == -1)
+					endPosition = 0;
+			}
+		}
+	}
+	
+	//
+	// Queue.returnProcess
+	//
+	num function returnProcess() {
+		return queue[0];
+	}
+	
+	//
+	// Queue.isQueueEmpty
+	//
+	num function isQueueEmpty() {
+		return queueActive;
+	}
+	
+}
+
+//
+// need a queue for every memory space
+//
+Queue homeNodeQueue[20];
+Queue processCheck[20];
+Queue homeNodeConflicts[20];
+Queue writeQueue[20];
+Queue finishedProcess[20];
+Queue homeNode[20];	// {joj 14/12/20}
+num queueLock[20];
+num mostRecent[20];
+num homeNodeRequests[20];
+
+for (num i = 0; i < 20; i++) {
+	homeNodeQueue[i] = Queue();
+	processCheck[i] = Queue();
+	queueLock[i] = 0;
+	invalidateRestart[i] = 0;
+	mostRecent[i] = -1;
+	writeQueue[i] = Queue();
+	homeNodeRequests[i] = 0;
+	homeNode[i] = Queue();
+	finishedProcess[i] = Queue();
+	homeNodeConflicts[i] = Queue();
+}
+
+
+// 
+//
+//
+num linkLockUp[NCPU];	// {joj 14/12/20}
+num linkLockDown[NCPU];	// {joj 14/12/20}
+num ackToken[NCPU];		// {joj 14/12/20}
+for (i = 0; i < NCPU; i++) {
+ 	linkLockUp[i] = 0;
+ 	linkLockDown[i] = 0;
+ 	ackToken[i] = 0;
+ 	DRAMLock[i] = 0;
+}
+
+//
+// p2pLink
+//
+// creates a bi direction link
+//
+class p2pLink(num _Ax, num _Ay, num _l, num _cpuA, num _cpuB, num _orientation, num _linkNo) {
+
+	num Ax = _Ax;
+	num Ay = _Ay;
+	num l = _l;
+	num cpuA = _cpuA;
+	num cpuB = _cpuB;
+	num orientation= _orientation;
+	num linkNo = _linkNo;
+
+	num currentPacketUpNo = 0;
+	num currentPacketDownNo = 0;
+	num waitingU = 0;
+	num waitingDown = 0; 
+	num packageW = 120;
+	num packageH = 40;
+	num arrowH = 15;
+	num arrowW = 30;
+	num xGap = 200;
+	num yGap = 105;
+	num boxOffsetX = 20;
+	num boxOffsetY = 15;
+	
+	num lock[5];		// {joj 14/12/20}
+	Polygon httUp;		// {joj 14/12/20}
+	Polygon httDown;	// {joj 14/12/20}
+	Ellipse pUpB[5];	// {joj 14/12/20}
+	Rectangle pUp[5];	// {joj 14/12/20}
+	Ellipse pDownB[5];	// {joj 14/12/20}
+	Rectangle pDown[5];	// {joj 14/12/20}
+
+	for (num i = 0; i < 5; i++)
+		lock[i]=0;
+	
+	//
+	// create a vertical or horizontal link
+	//
+	if (orientation == 0) {
+
+		httUp = Polygon(0, ABSOLUTE, blackPen, gray192Brush, Ax, Ay-5, 0, 0, l-arrowW, 0, l-arrowW, -arrowH, l, arrowH/2, l-arrowW,arrowH*2, l-arrowW,arrowH, 0,arrowH );
+		httDown = Polygon(0, ABSOLUTE, blackPen, gray192Brush,  Ax, Ay + yGap - 5, 0, arrowH/2, arrowW, -arrowH, arrowW,0, l, 0, l, arrowH, arrowW, arrowH, arrowW,arrowH*2);
+		
+		for (i = 0; i < 5; i++) {
+			pUpB[i] = Ellipse(0, 0, redPen, gray192Brush, Ax, Ay+10, 0, 0, packageW + (boxOffsetX*2), packageH + (boxOffsetY*2));
+			pUp[i] = Rectangle2(0, 0, redPen, gray192Brush, Ax+15, Ay,packageW, packageH, blackPen, packetFont, 0);
+			pDownB[i] = Ellipse(0, 0, redPen, gray192Brush, Ax, Ay+50, 0, 0, packageW+(boxOffsetX*2), packageH+(boxOffsetY*2));
+			pDown[i] = Rectangle2(0, 0, redPen, gray192Brush, Ax, Ay+50, packageW, packageH, blackPen, packetFont, 0);
+			pUpB[i].setOpacity(0);
+			pDownB[i].setOpacity(0);
+			pUp[i].setOpacity(0);
+			pDown[i].setOpacity(0);
+		}
+
+	} else {
+
+		httUp = Polygon(0, ABSOLUTE, blackPen, gray192Brush, Ax+55,Ay, 0, 0, arrowH,0, arrowH, l-arrowW, arrowH*2,l - arrowW, arrowH/2, l, -arrowH, l-arrowW, 0, l-arrowW);
+		httDown = Polygon(0, ABSOLUTE, blackPen, gray192Brush,  Ax+52+xGap,Ay, arrowH/2,0, arrowH*2,arrowW, arrowH,arrowW, arrowH,l, 0,l, 0,arrowW, -arrowH,arrowW);
+		
+		for (i = 0; i < 5; i++) {
+			pUpB[i] = Ellipse(0, 0, redPen, gray192Brush, Ax, Ay,0,0, packageW+(boxOffsetX*2), packageH+(boxOffsetY*2));
+			pUp[i] = Rectangle2(0, 0, redPen, gray192Brush, Ax,Ay, packageW, packageH, blackPen, packetFont, 0);
+			pDownB[i] = Ellipse(0, 0, redPen, gray192Brush, Ax+80, Ay,0,0 ,packageW+(boxOffsetX*2), packageH+(boxOffsetY*2));
+			pDown[i] = Rectangle2(0, 0, redPen, gray192Brush, Ax+80,Ay, packageW,packageH, blackPen, packetFont, 0);
+			pUpB[i].setOpacity(0);
+			pDownB[i].setOpacity(0);
+			pUp[i].setOpacity(0);
+			pDown[i].setOpacity(0);
+		}
+	}
+	
+	//
+	// packetUp
+	//
+	// send packets up link
+	//
+	function packetUp(num ticks, num wflag, Brush brush1, Brush brush2, num addr, string msg) {
+		pUpB[currentPacketUpNo].setOpacity(1);
+		pUpB[currentPacketUpNo].setBrush(brush1);
+		pUp[currentPacketUpNo].setOpacity(1);
+		pUp[currentPacketUpNo].setBrush(brush2);
+		string tempMessage = sprintf("%d", addr);
+		tempMessage = msg + tempMessage;
+		
+		pUp[currentPacketUpNo].setTxt(tempMessage);
+		if (orientation == 0) {
+			pUpB[currentPacketUpNo].setPos(Ax-packageW-2*boxOffsetX, Ay-packageH/2-boxOffsetY);
+			pUp[currentPacketUpNo].setPos(Ax-packageW-boxOffsetX, Ay-packageH/2);
+			//fork(pUpB[currentPacketUpNo].setPos(Ax+l, Ay-packageH/2-boxOffsetY, ticks, wflag));
+			pUpB[currentPacketUpNo].setPos(Ax+l, Ay-packageH/2-boxOffsetY, ticks, wflag);
+			pUp[currentPacketUpNo].setPos(Ax + l + boxOffsetX, Ay - packageH/2, ticks, wflag);
+		} else {
+			pUpB[currentPacketUpNo].setPos(Ax-boxOffsetX, Ay-packageH-boxOffsetY);
+			pUp[currentPacketUpNo].setPos(Ax, Ay-packageH);
+			//fork(pUpB[currentPacketUpNo].setPos(Ax-boxOffsetX, Ay+l, ticks, wflag));
+			pUp[currentPacketUpNo].setPos(Ax, Ay+l+boxOffsetY, ticks, wflag);
+		}
+		
+	}
+
+	//
+	// packetDown
+	//
+	// send packets down link
+	//
+	function packetDown(num ticks, num wflag, Brush brush1, Brush brush2, num addr, string msg) {
+		pDownB[currentPacketDownNo].setOpacity(1);
+		pDownB[currentPacketDownNo].setBrush(brush1);
+		pDown[currentPacketDownNo].setOpacity(1);
+		pDown[currentPacketDownNo].setBrush(brush2);
+		string tempMessage = sprintf("%d", addr);
+		tempMessage = msg + tempMessage;
+		pDown[currentPacketDownNo].setTxt(tempMessage);
+		if (orientation==0) {
+			pDownB[currentPacketDownNo].setPos( Ax+l+boxOffsetX,Ay-packageH/2+yGap-boxOffsetY);
+			pDown[currentPacketDownNo].setPos( Ax+l+2*boxOffsetX,Ay-packageH/2+yGap);		
+			//fork(pDownB[currentPacketDownNo].setPos(Ax-packageW-boxOffsetX*2, Ay-packageH/2+yGap-boxOffsetY, ticks, wflag));
+			pDown[currentPacketDownNo].setPos(Ax-packageW-boxOffsetX, Ay-packageH/2+yGap, ticks, wflag);
+		} else {
+			pDownB[currentPacketDownNo].setPos( Ax+xGap-boxOffsetX,Ay+l);
+			pDown[currentPacketDownNo].setPos( Ax+xGap,Ay+l+boxOffsetY);
+			//fork(pDownB[currentPacketDownNo].setPos(Ax+xGap-boxOffsetX, Ay-packageH-boxOffsetY*2, ticks, wflag));
+			pDown[currentPacketDownNo].setPos(Ax+xGap, Ay-packageH-boxOffsetY, ticks, wflag);
+		}
+	}
+	
+}
+
+p2pLink link[5];	// {joj 14/12/20}
+
+link[0] = p2pLink(471+offset*2, 285+offset, 709, 0, 1, 0, 0);
+link[1] = p2pLink(90+offset*2, 828+offset, 370, 0, 2, 1 ,1);
+link[2] = p2pLink(1250+offset*2, 828+offset, 370, 1, 3, 1, 2);
+link[3] = p2pLink(471+offset*2, 1450+offset, 709, 2, 3, 0, 3);
+link[4] = p2pLink(1619+offset*2, 1450+offset, 709, 3, 4, 0, 4);
+
+//
+// linkPathUp
+//
+// send a packet up a link and ensure two packets dont travel up at once
+//
+function linkPathUp(num linkNo, num wflag, Brush brush1, Brush brush2, num addr, string msg) {
+	
+	// only send a msg when the link has possesion of the lock					
+	while(linkLockUp[linkNo] == 1)
+		wait(1);
+	
+	linkLockUp[linkNo] = 1;
+	link[linkNo].packetUp(TICKS*2, wflag, brush1, brush2, addr, msg);
+	wait(TICKS*2);
+	linkLockUp[linkNo] = 0;
+
+}
+
+//
+// linkPathDown
+//
+// send a packet down a link and ensure two packets dont travel up at once
+//
+function linkPathDown(num linkNo, num wflag, Brush brush1, Brush brush2, num addr,string msg) {
+	
+	while(linkLockDown[linkNo] == 1)
+		wait(1);
+
+	linkLockDown[linkNo] = 1;
+	link[linkNo].packetDown(TICKS*2, wflag, brush1, brush2, addr, msg);
+	wait(TICKS*2);
+	linkLockDown[linkNo] = 0;
+}
+
+//
+// linkPath
+//
+// send mmsg along predefined paths
+//
+function linkPath(num cpuA, num cpuB, num wflag, Brush brush1, Brush brush2, num addr, string msg) {
+	debug("linkPath, cpuA=%d cpuB=%d", cpuA, cpuB);
+	if (cpuA != cpuB) {
+		if (cpuA == 0) { 
+			if (cpuB == 1 || cpuB == 3 || cpuB == 4) {
+				linkPathUp(0, wflag, brush1, brush2, addr, msg);
+				if (cpuB == 3 || cpuB == 4) {
+					linkPathUp(2, wflag, brush1, brush2, addr, msg);
+				}
+				if (cpuB == 4) {
+					linkPathUp(4, wflag ,brush1, brush2, addr, msg);
+				}
+			}
+			if (cpuB == 2) {
+				linkPathUp(1, wflag, brush1, brush2, addr, msg);
+			}
+		}
+		
+		if (cpuA == 1) {
+			if (cpuB == 3 || cpuB == 4) {
+				linkPathUp(2, wflag, brush1, brush2, addr, msg);
+				if (cpuB == 4) {
+					linkPathUp(4, wflag, brush1, brush2, addr, msg);
+				}	
+			}
+			if (cpuB == 0 || cpuB == 2) {
+				linkPathDown(0, wflag, brush1, brush2, addr, msg);
+				if (cpuB == 2) {
+					linkPathUp(1, wflag, brush1, brush2, addr, msg);
+				}
+			}
+		}
+	
+		if (cpuA == 2) {
+			if (cpuB == 3 || cpuB == 4) {
+				linkPathUp(3, wflag, brush1, brush2, addr, msg);
+				if (cpuB == 4) {
+					linkPathUp(4, wflag, brush1, brush2, addr, msg);
+				}
+			}
+			if (cpuB == 0 || cpuB == 1) {
+				linkPathDown(1, wflag, brush1, brush2, addr, msg);
+				if (cpuB == 1) {
+					linkPathUp(0, wflag, brush1, brush2, addr, msg);
+				}
+			}
+		}
+		
+		if (cpuA == 3) {
+			if (cpuB == 1 || cpuB == 0) { 
+				linkPathDown(2, wflag, brush1, brush2, addr, msg);
+				if (cpuB == 0) {
+					linkPathDown(0, wflag, brush1, brush2, addr, msg);
+				}
+			}
+			if (cpuB == 4) {
+				linkPathUp(4, wflag, brush1, brush2, addr, msg);
+			}
+			if (cpuB == 2) {
+				linkPathDown(3, wflag, brush1, brush2, addr, msg);
+			}
+		}
+		
+		if (cpuA == 4) {
+			linkPathDown(4, wflag, brush1, brush2, addr, msg);
+			if (cpuB == 1 || cpuB == 0) {
+				linkPathDown(2, wflag, brush1, brush2, addr, msg);
+				if (cpuB == 0) {
+					linkPathDown(0, wflag, brush1, brush2, addr, msg);
+				}
+			}
+			if (cpuB == 2) {
+				linkPathDown(3, wflag, brush1, brush2, addr, msg);
+			}
+		}
+	}
+
+}
+
+//
+// CPU
+//
+// create a node containing CPU, cache and memory
+//
+class CPU(num _x, num _y, num _cpuNo) {
+
+	num x = _x;
+	num y = _y;
+	num cpuNo = _cpuNo;
+
+	num w = 400;
+	num gap = 15;
+	num h = 700;
+	num h2 = h/17;
+	num w2 = w - (2*gap);
+	num cacheLineFound = -1;
+	num repliesReturned = 0;	
+	num memoryAccessComplete = 0;
+	num cancelMemoryAccess = 0;
+	num cpuLock = 0;		
+
+	Queue tempQueue = Queue();
+	Memory cpuMemory;
+	Cache cpuCache;
+	DataLines cpuDataLines;
+	DataLines cpuDataLines2;
+	DialogBox cpuDialogBox;
+	num READ = 0;
+	num WRITE = 1;
+	num ReadOrWrite = READ;
+	Brush brushTemp = SolidBrush(rgba(1, 1, 150/255));
+	Rectangle r = Rectangle2(0, 0, blackPen, brushTemp, x-20, y, w+40, h+80);
+	num invalidating = -1;
+	num cpuRestart = 0;
+	num mesifUpdateMemory = 0;
+	num currentProcess = -1;
+	Queue writeConflictQueue[2];
+	//num cQLock[2];
+	//cQLock[0] = 0;
+	//cQLock[1] = 0;
+	writeConflictQueue[0] = Queue();
+	writeConflictQueue[1] = Queue();
+	Queue conflictQueue[2];	// {joj 14/12/20}
+	conflictQueue[0] = Queue();
+	conflictQueue[1] = Queue();
+	num readCycle = -1;
+	num probeCycle = -1;
+	num readConflict = -1;
+	num probeConflict = -1;
+	num waitingOnHomeNodeAck[20];
+	num mesifWrite = 0;
+	num conflict = 0;
+	num isCpuWriting = 0;
+	num lineModified = 0;
+	string conflicts = "";
+	//num replyLock[20];	// {joj 14/12/20}
+	for (i = 0; i < 20; i++) {
+		//replyLock[i] = 0;
+		waitingOnHomeNodeAck[i] = 0;
+	}
+	
+	Rectangle t = Txt(0, HLEFT | VTOP, x - 140, y - 80, redPen, titleFont, "CPU %d", cpuNo);
+	
+	//
+	// Memory (4 locations per CPU)
+	// 
+	class Memory() {
+	
+		num mem[4];
+		num stale[4];
+		Rectangle r = Rectangle2(0, 0, blackPen, gray192Brush, x+gap, y+gap, w2, gap+h2*4.75);
+		Rectangle memR[4];		// {joj 14/12/20}
+		Rectangle memRTxt[4];	// {joj 14/12/20}
+
+		for (num i = 0; i < 4; i++) {
+			mem[i] = 0;
+			memR[i] = Rectangle2(0, 0, blackPen, brushsH[cpuNo], x+2*gap, y+2*gap+(h2+gap/2)*i, w2-gap*2, h2);
+			memRTxt[i] = Rectangle2(0, 0, 0, 0, x+2*gap, y+2*gap+(h2+gap/2)*i, w2-gap*2, h2, blackPen, f1, "addr:a%d data:%d", cpuNo + i*5, mem[i]);	
+		}
+		
+		//
+		// CPU.Memory.highlight
+		//	
+		function highlight(num addr, num flag) {
+			memR[addr].setBrush((flag) ? brushsH[cpuNo] : brushsS[cpuNo]);
+		}
+		
+		//
+		// CPU.Memory.reset
+		//
+		function reset() {
+			for (num i = 0; i < 4; i++) {
+				mem[i] = 0;
+				stale[i] = 0;
+			}
+		}
+		
+	} // Memory
+	
+	//
+	// Cache
+	//
+	class Cache(){
+
+		num state[2];
+		num content[2];
+		num addr[2];
+		Rectangle stateR[2];	// {joj 14/12/20}
+		Rectangle stateRTxt[2];	// {joj 14/12/20}
+		Rectangle aR[2];		// {joj 14/12/20}
+		Rectangle aRTxt[2];		// {joj 14/12/20}
+		Rectangle dR[2];		// {joj 14/12/20}
+		Rectangle dRTxt[2];		// {joj 14/12/20}
+
+		Rectangle r = Rectangle2(0, 0, blackPen, gray192Brush, x+gap, y+h*0.421, w2, (h2+gap)*2);
+
+		//
+		// create 2 cache lines
+		//
+		for (num i = 0; i < 2; i++) {
+
+			state[i] = INVALID;
+			content[i] = 0;	// {joj 14/12/20}
+			addr[i] = -1;
+			
+			// state
+			stateR[i] = Rectangle2(0, 0, blackPen, whiteBrush, x+gap*2, y+h*0.421+gap+i*h2, w2*0.1, h2);
+			stateRTxt[i] = Rectangle2(0, 0, 0, 0, x+gap*2, y+h*0.421+gap+i*h2, w2*0.1, h2, blackPen, f1, "I");
+
+			// addr
+			aR[i] = Rectangle2(0, 0, blackPen, whiteBrush, x+gap*2+w2*0.1,y+h*0.421+gap+i*h2, w2*0.41, h2);
+			aRTxt[i] = Rectangle2(0, 0, 0, 0, x+gap*2+w2*0.1,y+h*0.421+gap+i*h2, w2*0.41, h2, blackPen, bf0, "");
+
+			// data
+		    dR[i] = Rectangle2(0, 0, blackPen, whiteBrush, x+gap*2+w2*0.51, y+h*0.421+gap+i*h2, w2*0.41, h2);
+		    dRTxt[i] = Rectangle2(0, 0, 0, 0, x+gap*2+w2*0.51, y+h*0.421+gap+i*h2, w2*0.41, h2, blackPen, bf0, "");
+
+		}
+
+		//
+		// CPU.Cache.hightlight
+		//
+		function highlight(num cacheLine, num flag) {
+			stateR[cacheLine].setBrush((flag) ? whiteBrush : greenBrush);
+			aR[cacheLine].setBrush((flag) ? whiteBrush : greenBrush);
+			dR[cacheLine].setBrush((flag) ? whiteBrush : greenBrush);
+		}
+
+		//
+		// CPU.Cache.reset
+		//
+		function reset() {
+			for (num i = 0; i < 2; i++) {
+				state[i] = INVALID;
+				content[i] = 0;
+				addr[i] = -1;
+			}
+		}
+
+	} // Cache
+
+	//
+	// DataLines
+	//
+	class DataLines(num _xpos, num _ypos) {
+
+		num xpos = _xpos;
+		num ypos = _ypos;
+
+		num bodyWidth = 5;
+		num aWidth = 12;
+		num l = 60;
+		
+		Polygon arrow1 = Polygon(0, ABSOLUTE, 0, blackBrush, xpos,ypos, 0,0, -aWidth,-aWidth, -bodyWidth,-aWidth, -bodyWidth,-l, -aWidth,-l, 0,-l-aWidth, aWidth,-l, bodyWidth,-l, bodyWidth,-aWidth, aWidth,-aWidth );
+		Polygon arrow2 = Polygon(0, ABSOLUTE, 0, blackBrush, xpos+h2*4,ypos, 0,0, -aWidth,-aWidth, -bodyWidth,-aWidth, -bodyWidth,-l, -aWidth,-l, 0,-l-aWidth, aWidth,-l, bodyWidth,-l, bodyWidth,-aWidth, aWidth,-aWidth );
+		
+		Rectangle body1 = Rectangle2(0, 0, 0, blueBrush, xpos-bodyWidth, ypos, 2*bodyWidth, -l);
+		Rectangle body2 = Rectangle2(0, 0, 0, redBrush,  xpos-bodyWidth+h2*4,ypos-aWidth, 2*bodyWidth, -l);
+		Polygon up = Polygon(0, ABSOLUTE, 0, blueBrush, xpos-aWidth,ypos, 0,0, aWidth,-10, 2*aWidth,0);
+		Polygon down = Polygon(0, ABSOLUTE, 0, redBrush,  xpos+h2*4,ypos-l, 0,0, -aWidth,-10, aWidth,-10); 
+		
+		up.setOpacity(0);
+		down.setOpacity(0);
+		body1.setOpacity(0);
+		body2.setOpacity(0);
+		
+		//
+		// CPU.DataLines.moveUp
+		//
+		function moveUp(num ticks, num wflag) {
+			// initial positions, size & opacity
+			up.setPos(xpos-aWidth, ypos);
+			body1.setPos(xpos-bodyWidth, ypos);
+			body1.setSz(2*bodyWidth, 0);
+			up.setOpacity(1);
+			body1.setOpacity(1);
+				
+			// final positions, size & opacity
+			up.setPos(xpos-aWidth,ypos-l, ticks, 0);
+			body1.setSz(2*bodyWidth, -l, ticks, 0);
+			arrow1.setOpacity(0, ticks, wflag);
+		}
+
+		//
+		// CPU.DataLines.moveDown
+		//
+		// animates down movement on vertical bus arrow
+		//
+		function moveDown(num ticks, num wflag)	{
+
+			//
+			// initial positions, size & opacity
+			//
+			down.setPos( xpos+h2*4, ypos-l);
+			body2.setPos (xpos-bodyWidth+h2*4, ypos-l-10);
+			body2.setSz(2*bodyWidth, 0);
+			down.setOpacity(1);
+			body2.setOpacity(1);
+	
+			//
+			// final positions, size & opacity
+			//
+			
+			body2.setSz(2*bodyWidth, l, ticks, 0);
+			down.setPos( xpos+h2*4,ypos, ticks, 0);
+			arrow2.setOpacity(0, ticks, wflag);
+	
+		}
+		
+		//
+		// CPU.Datalines.reset
+		//
+		function reset() {
+			up.setOpacity(0);
+			body1.setOpacity(0);
+			down.setOpacity(0);
+			body2.setOpacity(0);
+			arrow1.setOpacity(1);
+			arrow2.setOpacity(1);
+		}
+					
+	} // DataLines
+		
+	//
+	// CPU.cpu0Path
+	//
+	// paths for snooping must be called link this to insure that the cache is only checked on recieving a broadcast msg
+	//
+	function cpu0path(num cpuNo, num addr, num invalidate, num flag, string msg) {
+		linkPath(0, 1, 0, brushsH[cpuNo], brushsH[cpuNo], addr, msg);	
+		fork(checkCache(cpuNo, 1, addr, flag, invalidate));
+		linkPath(1, 3, 0, brushsH[cpuNo], brushsH[cpuNo], addr, msg);
+		fork(checkCache(cpuNo, 3, addr, flag, invalidate));
+		linkPath(3, 4, 0, brushsH[cpuNo], brushsH[cpuNo], addr, msg);
+		fork(checkCache(cpuNo, 4, addr, flag, invalidate));
+	}
+
+	//
+	// CPU.cpu1Path
+	//
+	function cpu1path(num cpuNo, num addr, num invalidate, num flag, string msg) {
+		linkPath(1, 3, 0, brushsH[cpuNo], brushsH[cpuNo], addr, msg);	
+		fork(checkCache(cpuNo, 3, addr, flag, invalidate));
+		linkPath(3, 4, 0, brushsH[cpuNo], brushsH[cpuNo], addr, msg);
+		fork(checkCache(cpuNo, 4, addr, flag, invalidate));
+	}
+	
+	//
+	// CPU.cpu2Path
+	//
+	function cpu2path(num cpuNo, num addr, num invalidate, num flag, string msg) {
+		debug("cpu2Path");
+		linkPath(2, 0, 0, brushsH[cpuNo], brushsH[cpuNo], addr, msg);	
+		fork(checkCache(cpuNo, 0, addr, flag, invalidate));
+		linkPath(0, 1, 0, brushsH[cpuNo], brushsH[cpuNo], addr, msg);
+		fork(checkCache(cpuNo, 1, addr, flag, invalidate));
+	}
+
+	//
+	// CPU.cpu3Path1
+	//
+	function cpu3path1(num cpuNo, num addr, num invalidate, num flag, string msg) {
+		linkPath(3, 1, 0,brushsH[cpuNo], brushsH[cpuNo], addr, msg);	
+		fork(checkCache(cpuNo, 1, addr, flag, invalidate));
+		linkPath(1, 0, 0, brushsH[cpuNo], brushsH[cpuNo], addr, msg);
+		fork(checkCache(cpuNo, 0, addr, flag, invalidate));
+	}
+
+	//
+	// CPU.cpu3Path2
+	//
+	function cpu3path2(num cpuNo, num addr, num invalidate, num flag, string msg) {
+		linkPath(3, 2, 0, brushsH[cpuNo], brushsH[cpuNo], addr, msg);	
+		fork(checkCache(cpuNo, 2, addr, flag, invalidate));
+	}
+
+	//
+	// CPU.cpu3Path3
+	//
+	function cpu3path3(num cpuNo, num addr, num invalidate, num flag, string msg) {
+		linkPath(3, 4, 0,brushsH[cpuNo], brushsH[cpuNo], addr, msg);	
+		fork(checkCache(cpuNo, 4, addr, flag, invalidate));
+	}
+		
+	//
+	// CPU.broadcast
+	//
+	// sends broadcast probe around system
+	//
+	function broadcast(num cpuNo, num addr, num invalidate, num flag, string msg) {
+		debug("broadcast cpuNo=%d addr=%d invalidate=%d flag=%d msg=%s", cpuNo, addr, addr, invalidate, flag, msg);
+		if (cpuNo == 0) {
+			fork(checkCache(cpuNo, 0, addr, flag, invalidate));
+			fork(cpu0path(cpuNo, addr, invalidate, flag, msg));
+			linkPath(0, 2, 0, brushsH[cpuNo], brushsH[cpuNo], addr, msg);
+			fork(checkCache(cpuNo, 2, addr, flag, invalidate));
+		}
+			
+		if (cpuNo == 1) {
+			fork(checkCache(cpuNo, 1, addr, flag, invalidate));
+			fork(cpu1path(cpuNo, addr, invalidate, flag, msg));
+			linkPath(1, 0, 0, brushsH[cpuNo], brushsH[cpuNo], addr, msg);
+			fork(checkCache(cpuNo, 0, addr, flag, invalidate));
+			linkPath(0, 2, 0, brushsH[cpuNo], brushsH[cpuNo], addr, msg);
+			fork(checkCache(cpuNo, 2, addr, flag, invalidate));
+		}
+			
+		if (cpuNo == 2) {
+			debug("broadcast:20");
+			fork(checkCache(cpuNo, 2, addr, flag, invalidate));
+			fork(cpu2path(cpuNo, addr, invalidate, flag, msg));
+			linkPath(2, 3, 0, brushsH[cpuNo], brushsH[cpuNo], addr, msg);
+			fork(checkCache(cpuNo, 3, addr, flag, invalidate));
+			linkPath(3, 4, 0, brushsH[cpuNo], brushsH[cpuNo], addr, msg);
+			fork(checkCache(cpuNo, 4, addr, flag, invalidate));
+		}
+			
+		if (cpuNo == 3) {
+			fork(checkCache(cpuNo, 3, addr, flag, invalidate));
+			fork(cpu3path1(cpuNo, addr, invalidate, flag, msg));
+			fork(cpu3path2(cpuNo, addr, invalidate, flag, msg));
+			fork(cpu3path3(cpuNo, addr, invalidate, flag, msg));	
+		}
+			
+		if (cpuNo == 4) {
+			fork(checkCache(cpuNo, 4, addr, flag, invalidate));
+			linkPath(4,3,0,brushsH[cpuNo], brushsH[cpuNo], addr, msg);
+			fork(checkCache(cpuNo, 3, addr, flag, invalidate));
+			fork(cpu3path1(cpuNo, addr, invalidate, flag, msg));
+			fork(cpu3path2(cpuNo, addr, invalidate, flag, msg));
+		}
+			
+	}
+
+	//
+	// CPU.DialogBox
+	//
+	class DialogBox() {
+	
+		num x1 = x - 20;
+		num x2 = x1 + 440;
+		num y1 = y + 570;
+		num w = 420;
+		num h = 150;
+		num h2 = 40;
+		num boxLock = 0;
+		num t1x = 50;
+		num t1y = y1 - 135;
+		num t2x = 40;
+		num t2y = y1 - 40;
+
+		Rectangle processTxtBox1 = Rectangle2(0, 0, blackPen, gray224Brush, t1x+x1,t1y, w-70, h-80, blackPen, f1, "");
+		processTxtBox1.moveToBack();
+		Rectangle processTxtBox2 = Rectangle2(0, 0, blackPen, gray224Brush, t2x+x1,t2y, w-40, h+65,blackPen, f2, "");
+		processTxtBox2.moveToBack();
+		Polygon processContainer = Polygon(0, 0, blackPen, gray192Brush, x1,y1, 0,0, 20,0, 0,-h, w,0, 0,h*2+h2, -w,0, 0,-h, -20,0);
+		processContainer.moveToBack();
+		
+		num ticksLocal = TICKS;
+		num boxOut = 0;
+		
+		//
+		// CPU.DialogBox.showPBox
+		//
+		function showPBox(num ticks, num RW, num addr) {
+			if (RW == READ) {
+				processTxtBox1.setTxt("Read to a%d", addr);
+			} else {
+				processTxtBox1.setTxt("Write to a%d" ,addr);
+			}
+			processContainer.setPos(x2, y1, ticks, 0);
+			processTxtBox1.setPos(x2 + t1x, t1y, ticks, 0);
+			processTxtBox2.setPos(x2 + t2x, t2y, ticks, 1);
+			boxOut = 1;
+		}
+
+		//
+		// CPU.DialogBox.hidePBox
+		//
+		function hidePBox(num ticks) {
+			processContainer.setPos(x1, y1, ticks, 0);
+			processTxtBox1.setPos(x1 + t1x, t1y, ticks, 0);
+			processTxtBox2.setPos(x1 + t2x, t2y, ticks, 1);
+			boxOut = 0;
+		}
+
+		//
+		// eventEE
+		//
+		when processContainer ~> eventEE(num enter, num, num) {
+			if (boxOut == 1) {
+				processContainer.setBrush(enter ?  gray128Brush :  gray192Brush);
+				processTxtBox1.setBrush(enter ?  gray192Brush :  gray224Brush);
+				processTxtBox2.setBrush(enter ?  gray192Brush :  gray224Brush);
+			}	
+		}
+		
+		//
+		// eventMB
+		//
+		when processContainer ~> eventMB(num down, num flags, num, num y) {
+			if (down && (boxOut == 1) && ((flags & MB_LEFT) == 0)) {
+				boxOut = 0;
+				start();
+				processContainer.setPos(x1, y1, ticksLocal, 0);
+				processTxtBox1.setPos(x1 + t1x, t1y, ticksLocal, 0);
+				processTxtBox2.setPos(x1 + t2x, t2y, ticksLocal, 1);
+				processContainer.setBrush(gray192Brush);
+				processTxtBox1.setBrush(gray224Brush);
+				processTxtBox2.setBrush(gray224Brush);
+			}
+		}
+
+		//
+		// CPU.DialogBox.setCurrentTask
+		//
+		function setCurrentTask(string msg) {
+			processTxtBox2.setTxt(msg);
+		}
+		
+		//
+		// CPU.DialogBox.setTitle
+		//
+		function setTitle(string msg) {
+			processTxtBox1.setTxt(msg);
+		}
+		
+	} // DialogBox
+	
+	//
+	// CPU.accessMemory
+	//
+	// these two function need to be forked thats why there not included in the main program.
+	//
+	function accessMemory(num cacheContents, num addr) {
+		while (DRAMLock[addr%NCPU] == 1) {
+			wait(1);
+		}
+		DRAMLock[addr%NCPU] = 1;
+		cpu[addr % NCPU].cpuDataLines.moveUp(TICKS*2, 1);
+		cpu[addr % NCPU].cpuMemory.highlight((addr/4) | 0, 0);
+		cpu[addr % NCPU].cpuMemory.mem[(addr/4) | 0] = cacheContents;
+		cpu[addr % NCPU].cpuMemory.memRTxt[(addr/4) | 0].setTxt("Address:a%d Data:%d", addr, cacheContents);
+		DRAMLock[addr%NCPU] = 0;
+	}
+	
+	//
+	// CPU.ackRelease
+	//
+	function ackRelease(num cpuA, num cpuB, num addr, string msg) {
+		linkPath(cpuA, cpuB, 0, brushsH[cpuA], brushsH[cpuA], addr, msg);
+		cpu[cpuB].waitingOnHomeNodeAck[addr] = 0;
+	}
+	
+	
+	//
+	// CPU.mesif
+	//
+	// mesif logic
+	//
+	function mesif(num addr, num doWrite) {
+	
+		debug("mesif(addr=%d, doWrite=%d", addr, doWrite);
+
+		//If the Cpu is not currently doing an operation
+		if (cpuLock == 0) {
+			cpuLock = 1;
+			//if no cpus are active reset all highlighed areas
+			if (cpusActive == 0) {
+				debug("here1");
+				for (i = 0; i < NCPU; i++) {
+					for (j = 0; j < 2; j++) {
+						cpu[i].cpuCache.highlight(j, 1);
+					}
+					for (j = 0; j < 4; j++) {
+						cpu[i].cpuMemory.highlight(j, 1);
+					}
+				}
+			}
+			cpusActive++;	
+			//start animating, lock the the cpu and move the data lines up
+			start();
+						
+			conflicts = "";
+			string msg = sprintf("Check Local Cache\nfor a Valid copy\nof a%d", addr);
+			cpuDialogBox.setCurrentTask(msg);
+			if (doWrite == WRITE) {
+				cpuDialogBox.showPBox(20, WRITE, addr);
+			} else {
+				cpuDialogBox.showPBox(20, READ, addr);
+			}
+			
+			debug("mesif:1");
+			//put msg in dialog box
+			cpuDataLines2.moveUp(TICKS, 1);	
+			msg = sprintf("Waiting\nfor Acknowlegement\n to Continue a%d", addr);
+			cpuDialogBox.setCurrentTask(msg);
+			while(waitingOnHomeNodeAck[addr] == 1) {
+				wait(1);
+			}
+			debug("mesif:2");
+				
+			//this tells other cpus that broadcast this cpu that its currently writing
+			//so it will be met with a conflict invalid reply
+			if (doWrite == WRITE) {
+				isCpuWriting = 1;
+			} else {
+				isCpuWriting = 0;
+			}
+					
+			//If set to 1 the cpu is waiting on an acknowledement from the cpu
+			//to continue, so this cpu will not return a reply until its at 0
+			//waitingOnHomeNodeAck[addr]=0;
+			//this variable tells that thats a line returned from a broadcast is modified or not
+			lineModified = 0;
+			//The cpu can be in a probe cycle or read cycle when its searching for its cache line.
+			//Depending on the cycle its in, it will return different replies
+			//If its in the probe or read cycle set the varibles to the addressess the cpu is
+			//currently looking for
+			probeCycle = 1;
+			readCycle = -1;
+			//If a cpu is trying to get the same cache line as when its broadcasted it will return a conflict
+			//meesage, there are two different times it will send a conflict msg,
+			//when its broadcasting all the caches, or its sending a read msg to the Home Node and awaiting the
+			//returned cache line.
+			//read conflict stores the cpu no that is currently reading
+			//The probe conflict simply tells whether any other cpus where in their broadcast cycle 
+			readConflict = 0; 
+			probeConflict = 0;
+			//This variable stores the cpu no. of the cpu which returned a valid copy of the cache line to
+			//this cpu on a broadcast
+			cacheLineFound = -1;	
+			//This variable stops the sequence from continuing until a memory access has been finished
+			memoryAccessComplete = 0;
+			//This is used to stop a memory access when a cancel msg is sent to the home node
+			cancelMemoryAccess = 0;
+			//This stores all the replies recieved after a broadcast from the other cpus
+			repliesReturned = 0;	
+			
+			//If theres  a different cache line stored in the Modified State flush it to the Home Node
+			if (cpuCache.addr[addr % 2] != addr && cpuCache.state[addr % 2] == MODIFIED) {
+				debug("mesif:3");
+				waitingOnHomeNodeAck[cpuCache.addr[addr % 2]] = 1;
+				msg = sprintf("Flush a%d to\nHome Node %d", cpuCache.addr[addr % 2], cpuCache.addr[addr % 2]%NCPU);
+				cpuDialogBox.setCurrentTask(msg);
+				mostRecent[cpuCache.addr[addr % 2]] = -1;
+				linkPath(cpuNo, cpuCache.addr[addr % 2]%NCPU, 0, brushsH[cpuNo], brushsH[cpuNo], addr, "FL:a");
+				
+				accessMemory(cpuCache.content[addr % 2], cpuCache.addr[addr % 2]);
+				msg = sprintf("Home Node a%d\nresponds with a\nFlush\nAcknowledge", cpuCache.addr[addr % 2]%NCPU);
+				cpuDialogBox.setCurrentTask(msg);
+				linkPath(cpuCache.addr[addr % 2]%NCPU, cpuNo, 0, brushsH[cpuNo], brushsH[cpuNo], addr, "FA:a");
+				cpuCache.state[addr % 2] = INVALID;
+				cpuCache.stateRTxt[addr % 2].setTxt("I");
+				waitingOnHomeNodeAck[cpuCache.addr[addr % 2]] = 0;
+			}
+				
+			//If the cache Line is not on the cache or is Invalid ie not available locally start the MESIF protocol
+			if (cpuCache.addr[addr % 2] != addr || cpuCache.state[addr % 2]==INVALID || ( cpuCache.addr[addr % 2]==addr && doWrite==WRITE && (cpuCache.state[addr % 2]==SHARED ||cpuCache.state[addr % 2]==FORWARD))) {
+				debug("mesif:4");
+
+				// set probe cycle to the addr that's being searched for, it another CPU is also
+				// probing it will know there's a conflict
+				probeCycle = addr;
+				if (doWrite == WRITE) {
+					msg = sprintf("Send Probe Invalidate\nto all Nodes,\nAcks Returned 0/4", addr % NCPU);
+					cpuDialogBox.setCurrentTask(msg);
+					broadcast(cpuNo,addr, 1, 0, "PRI:a");	// broadcast to ALL CPUs
+				} else {
+					msg = sprintf("Send Probe\nto all Nodes,\nAcks Returned 0/4", addr % NCPU);
+					cpuDialogBox.setCurrentTask(msg);
+					broadcast(cpuNo,addr, 0, 0, "PR:a");	// broadcast to ALL CPUs
+				}
+				debug("mesif:5");
+				
+				// wait for all the replies before continuing
+				while (repliesReturned != 5) {
+					wait(1);
+				}
+				debug("mesif:6");
+				//exit the probe cycle
+				probeCycle = -1;
+				
+				//Enter read cycle
+				readCycle = addr;
+				//If no valid cache Lines where found on the other cpus send a read msg and
+				//take the data from the home Node memory
+				if (cacheLineFound == -1) {
+					msg = sprintf("No dirty lines,\nsend READ msg\nto Home Node %d\nCpu Conflicts:" + conflicts, addr % NCPU);
+					cpuDialogBox.setCurrentTask(msg);
+					linkPath(cpuNo, addr % NCPU, 0, brushsH[cpuNo], brushsH[cpuNo], addr, "READ:a");
+				} else {
+					//If a cache line was found send a cancel msg to the home node to stop accessing memory
+					msg = sprintf("Dirty line found,\nsend CNCL msg\n to Home Node %d\nCpu Conflicts:" + conflicts, addr % NCPU);
+					cpuDialogBox.setCurrentTask(msg);
+					linkPath(cpuNo, addr % NCPU, 0, brushsH[cpuNo], brushsH[cpuNo], addr, "CNCL:a");
+					cancelMemoryAccess=0;
+				}
+				//Add the read or cancel msg to the home nodes queue
+				homeNodeQueue[addr].addProcess(cpuNo);
+				//your now waiting on a home node ack
+				waitingOnHomeNodeAck[addr] = 1;
+				
+				
+				//this deletes out of date conflicts
+				tempQueue.emptyQueue();
+				for (num i=0; i < finishedProcess[addr].endPosition; i++) {
+					tempQueue.addProcess(finishedProcess[addr].queue[i]);
+				}
+				
+				while (tempQueue.isQueueEmpty() == 1) {
+					if (conflictQueue[addr % 2].checkProcess(tempQueue.returnProcess()) == 0) {
+						finishedProcess[addr].deleteProcess(tempQueue.returnProcess());
+					}
+					tempQueue.removeProcess();
+				}
+		
+				//The Home node searchs through all the conflicts in the read or cancel msg and stores all unknown conflicts
+				while(conflictQueue[addr % 2].isQueueEmpty() == 1) {
+					if (homeNodeConflicts[addr].checkProcess(conflictQueue[addr % 2].returnProcess()) == 0 && finishedProcess[addr].checkProcess(conflictQueue[addr % 2].returnProcess()) == 0) {
+						homeNodeConflicts[addr].addProcess(conflictQueue[addr % 2].returnProcess());
+						if(conflictQueue[addr % 2].returnProcess( )>= 10) {
+							writeQueue[addr].addProcess(conflictQueue[addr % 2].returnProcess());
+						}
+					}
+					conflictQueue[addr % 2].removeProcess();
+				}
+				
+				//check if the home node request is on the Queue
+				if (doWrite == WRITE) {
+					if (homeNodeConflicts[addr].checkProcess(cpuNo + 10) == 0 && finishedProcess[addr].checkProcess(cpuNo + 10) == 0) {
+						homeNodeConflicts[addr].addProcess(cpuNo + 10);
+						writeQueue[addr].addProcess(cpuNo + 10);		
+					}
+				} else {
+					if (homeNodeConflicts[addr].checkProcess(cpuNo) == 0 && finishedProcess[addr].checkProcess(cpuNo) == 0) {
+						homeNodeConflicts[addr].addProcess(cpuNo);
+					}
+				}
+				
+				//Wait until it this cpus turn on the home node
+				while (homeNodeQueue[addr].returnProcess() != cpuNo) {
+					wait(1);	
+				}
+				//Wait until the home node has finished its memory access, this will be quicker if a cancel msg was sent
+				while (memoryAccessComplete == 0) {
+					wait(1);
+				}
+
+				//remove this process from all queues except the homeNodeQueue
+				if (doWrite == WRITE) {	
+					writeQueue[addr].deleteProcess(cpuNo + 10);
+					homeNodeConflicts[addr].deleteProcess(cpuNo + 10);
+					finishedProcess[addr].addProcess(cpuNo + 10);
+				} else {
+					homeNodeConflicts[addr].deleteProcess(cpuNo);
+					finishedProcess[addr].addProcess(cpuNo);
+				}
+
+				//If no valid cache lines where found
+				if (cacheLineFound == -1) {
+					
+					//If there are no type of conflicts send the data from memory
+					if (probeConflict == 0 && readConflict==0&&mostRecent[addr] == -1) {
+								
+						//If there where no conflicts and the Queue is empty that means all cpus are finished with this cache line
+						//so all the queues can be emptied
+						mostRecent[addr] = cpuNo;
+						homeNodeQueue[addr].removeProcess();
+						//Send the cache line in exclusive
+						msg = sprintf("Home Node %d sends\na%d from memory\nin Exclusive", addr % NCPU, addr);
+						cpuDialogBox.setCurrentTask(msg);
+						linkPath(addr % NCPU, cpuNo, 0, brushsH[cpuNo], brushsH[addr%NCPU], addr, "DataE:a");
+						
+						//Enter the value on the source node
+						cpuCache.content[addr % 2] = cpu[addr%NCPU].cpuMemory.mem[(addr/4) | 0];
+						cpuCache.state[addr % 2]=EXCLUSIVE;
+						cpuCache.stateRTxt[addr % 2].setTxt("E");
+						cpuCache.addr[addr % 2] = addr;
+						cpuCache.aRTxt[addr % 2].setTxt("a%d", addr);
+						cpuCache.dRTxt[addr % 2].setTxt("%d", cpuCache.content[addr % 2]);
+						cpuCache.highlight(addr % 2, 0);
+						
+						if (doWrite == WRITE) {
+							//add one to the data and store it and set to modified
+							cpuCache.content[addr % 2]++;
+							cpuCache.dRTxt[addr % 2].setTxt("%d", cpuCache.content[addr % 2]);
+							cpuCache.state[addr % 2] = MODIFIED;
+							cpuCache.stateRTxt[addr % 2].setTxt("M");
+						}
+						//the read cycle is over and you recieved your ack
+						waitingOnHomeNodeAck[addr] = 0;
+						readCycle = -1;
+
+					} else {
+
+						//add yourself to the queue, which tells who has the most recent copy
+						//if you are the first process in with a conflict you get it in exclusive
+						if(mostRecent[addr]==-1) {
+							mostRecent[addr]=cpuNo;					
+							homeNodeQueue[addr].removeProcess();
+							msg = sprintf("Home Node %d sends\na%d from memory\nin Exclusive", addr % NCPU, addr);
+							cpuDialogBox.setCurrentTask(msg);
+							linkPath(addr%NCPU,cpuNo,0,brushsH[cpuNo],brushsH[addr%NCPU], addr, "DataE:a");
+						
+					
+							cpuCache.state[addr % 2] = EXCLUSIVE;
+							cpuCache.stateRTxt[addr % 2].setTxt("E");
+							cpuCache.content[addr % 2]=cpu[addr%NCPU].cpuMemory.mem[(addr/4) | 0];
+							cpuCache.addr[addr % 2]=addr;
+							cpuCache.aRTxt[addr % 2].setTxt("a%d",addr);
+							cpuCache.dRTxt[addr % 2].setTxt("%d",cpuCache.content[addr % 2]);
+							cpuCache.highlight(addr % 2,0);
+							
+							//write to the data
+							if (doWrite==WRITE) {
+								cpuDataLines2.moveDown(TICKS, 1);
+								cpuDataLines2.moveUp(TICKS, 1);
+								//add one to the data and store it and set to modified
+								cpuCache.content[addr % 2]++;
+								cpuCache.dRTxt[addr % 2].setTxt("%d",cpuCache.content[addr % 2]);
+								cpuCache.state[addr % 2] = MODIFIED;
+								cpuCache.stateRTxt[addr % 2].setTxt("M");
+							}	
+							readCycle=-1;
+							
+						} else {
+							
+							num currentData = mostRecent[addr];
+							mostRecent[addr]=cpuNo;
+							homeNodeQueue[addr].removeProcess();
+							//if there are no more conflicts send an ack to the source node
+							if (homeNodeConflicts[addr].isQueueEmpty() == 0) {
+								fork(ackRelease(addr % NCPU, cpuNo, addr, "ACK:a"));
+							}
+							
+							//send a transfer msg from the home node
+							if (doWrite == WRITE || writeQueue[addr].isQueueEmpty() == 1) {
+								msg = sprintf("Home Node %d,\nsends a Transfer\nInvalidate\nmessage to Node%d",addr%NCPU,currentData);
+								cpuDialogBox.setCurrentTask(msg);
+								linkPath(addr%NCPU,currentData,0,brushsH[cpuNo],brushsH[addr%NCPU],addr,"XFERI:a");
+							} else {
+								msg = sprintf("Home Node %d,\nsends a Transfer\nmessage to Node%d",addr%NCPU,currentData);
+								cpuDialogBox.setCurrentTask(msg);
+								linkPath(addr%NCPU,currentData,0,brushsH[cpuNo],brushsH[addr%NCPU],addr,"XFER:a");
+							}
+							cpu[currentData].waitingOnHomeNodeAck[addr]=0;
+							
+							//wait until the data is recieved at the tranfer node
+							while(cpu[currentData].cpuCache.state[addr % 2]==SHARED || cpu[currentData].cpuCache.state[addr % 2]==INVALID || cpu[currentData].readCycle!=-1) {
+								wait(1);
+							}
+							num goModified = 0;
+							if(cpu[currentData].cpuCache.state[addr % 2] == MODIFIED) {
+								goModified = 1;
+							}
+							if (doWrite==WRITE || goModified==1 ||writeQueue[addr].isQueueEmpty() == 1) {
+								cpu[currentData].cpuCache.state[addr % 2]=INVALID;
+								cpu[currentData].cpuCache.stateRTxt[addr % 2].setTxt("I");
+								cpu[currentData].cpuCache.stateRTxt[addr % 2].setTxt("I");
+							} else {
+								cpu[currentData].cpuCache.state[addr % 2]=SHARED;
+								cpu[currentData].cpuCache.stateRTxt[addr % 2].setTxt("S");
+								cpu[currentData].cpuCache.stateRTxt[addr % 2].setTxt("S");
+							}
+
+							//transfer the data
+							if (goModified==1) {
+								msg = sprintf("Node %d\nsends a%d\nin MODIFIED", currentData, addr);
+								cpuDialogBox.setCurrentTask(msg);
+								linkPath(currentData, cpuNo, 0, brushsH[cpuNo], brushsH[currentData], addr, "DataM:a");
+								cpuCache.content[addr % 2] = cpu[currentData].cpuCache.content[addr % 2];
+								cpuCache.state[addr % 2] = MODIFIED;
+								cpuCache.stateRTxt[addr % 2].setTxt("M");
+							} else {
+								if(writeQueue[addr].isQueueEmpty()==1||doWrite==WRITE) {
+									msg = sprintf("Node %d\nsends a%d\nin EXCLUSIVE", currentData, addr);
+									cpuDialogBox.setCurrentTask(msg);
+									linkPath(currentData, cpuNo, 0, brushsH[cpuNo], brushsH[currentData], addr, "DataE:a");
+									cpuCache.content[addr % 2] = cpu[currentData].cpuCache.content[addr % 2];
+									cpuCache.state[addr % 2]=EXCLUSIVE;
+									cpuCache.stateRTxt[addr % 2].setTxt("E");
+								} else {
+									msg = sprintf("Node %d\nsends a%d\nin FORWARD", currentData, addr);
+									cpuDialogBox.setCurrentTask(msg);
+									linkPath(currentData, cpuNo, 0, brushsH[cpuNo], brushsH[currentData], addr, "DataF:a");
+									cpuCache.content[addr % 2] = cpu[currentData].cpuCache.content[addr % 2];
+									cpuCache.state[addr % 2] = FORWARD;
+									cpuCache.stateRTxt[addr % 2].setTxt("F");
+								}
+							}
+					
+							cpuCache.addr[addr % 2]=addr;
+							cpuCache.aRTxt[addr % 2].setTxt("a%d",addr);
+							cpuCache.dRTxt[addr % 2].setTxt("%d",cpuCache.content[addr % 2]);
+							cpuCache.highlight(addr % 2,0);
+							if (doWrite==WRITE) {
+								//add one to the data and store it and set to modified
+								cpuCache.content[addr % 2]++;
+								cpuCache.dRTxt[addr % 2].setTxt("%d",cpuCache.content[addr % 2]);
+								cpuCache.state[addr % 2] = MODIFIED;
+								cpuCache.stateRTxt[addr % 2].setTxt("M");
+							}
+							
+							readCycle = -1;
+									
+						}		
+	
+					}
+
+				//cached copy found			
+				} else {
+							
+					debug("mesif:100");
+
+					mostRecent[addr] = cpuNo;
+					homeNodeQueue[addr].removeProcess();
+					if (doWrite == WRITE) {
+						msg = sprintf("Home Node %d\nverifies\nWrite Request\nfor a%d", addr % NCPU, addr);
+						cpuDialogBox.setCurrentTask(msg);
+					} else {
+						msg = sprintf("Home Node %d\nverifies\nRead Request\nfor a%d", addr % NCPU, addr);
+						cpuDialogBox.setCurrentTask(msg);
+					}
+					//home node confirmations
+					//if the cached line was modified
+					if (lineModified == 1) {
+						linkPath(addr % NCPU, cpuNo, 0, brushsH[cpuNo], brushsH[addr%NCPU], addr, "DataM:a");
+						cpuCache.content[addr % 2]=cpu[cacheLineFound].cpuCache.content[addr % 2];
+						cpuCache.state[addr % 2] = MODIFIED;
+						cpuCache.stateRTxt[addr % 2].setTxt("M");
+					} else {
+						if (doWrite == WRITE) {
+							linkPath(addr%NCPU,cpuNo,0,brushsH[cpuNo],brushsH[addr%NCPU], addr, "DataE:a");
+							cpuCache.content[addr % 2]=cpu[addr%NCPU].cpuMemory.mem[(addr/4) | 0];
+							cpuCache.state[addr % 2] = EXCLUSIVE;
+							cpuCache.stateRTxt[addr % 2].setTxt("E");
+						} else {
+							linkPath(addr % NCPU, cpuNo, 0, brushsH[cpuNo], brushsH[addr%NCPU], addr, "DataF:a");
+							cpuCache.content[addr % 2]=cpu[addr%NCPU].cpuMemory.mem[(addr/4) | 0];
+							cpuCache.state[addr % 2] = FORWARD;
+							cpuCache.stateRTxt[addr % 2].setTxt("F");
+						}
+					}
+					cpuCache.addr[addr % 2]=addr;
+					cpuCache.aRTxt[addr % 2].setTxt("a%d",addr);
+					cpuCache.dRTxt[addr % 2].setTxt("%d",cpuCache.content[addr % 2]);
+					cpuCache.highlight(addr % 2,0);
+					msg = sprintf("Source Node %d\nverifies the changes\non Node %d", -1, -1);
+					cpuDialogBox.setCurrentTask(msg);
+					fork(ackRelease(cpuNo, cacheLineFound, addr, "ACK:a"));
+					if (doWrite == WRITE) {
+						cpuDataLines2.moveDown(TICKS, 1);
+						cpuDataLines2.moveUp(TICKS, 1);
+						cpuCache.content[addr % 2]++;
+						cpuCache.dRTxt[addr % 2].setTxt("%d",cpuCache.content[addr % 2]);
+						cpuCache.state[addr % 2] = MODIFIED;
+						cpuCache.stateRTxt[addr % 2].setTxt("M");
+					}
+								
+					waitingOnHomeNodeAck[addr]=0;
+					readCycle=-1;
+								
+				}
+			//data cached locally
+			} else {
+				waitingOnHomeNodeAck[addr]=1;
+				cpuCache.highlight(addr % 2,0);
+				cpuDataLines2.moveDown(TICKS, 1);
+				if (doWrite == WRITE) {
+					if(cpuCache.state[addr % 2]==MODIFIED||cpuCache.state[addr % 2] == EXCLUSIVE) {
+						cpuDataLines2.moveUp(TICKS, 1);
+						cpuCache.content[addr % 2]++;
+						cpuCache.dRTxt[addr % 2].setTxt("%d",cpuCache.content[addr % 2]);
+						cpuCache.state[addr % 2]=MODIFIED;
+						cpuCache.stateRTxt[addr % 2].setTxt("M");
+						
+					}
+				}
+				waitingOnHomeNodeAck[addr] = 0;
+     		}
+			while (waitingOnHomeNodeAck[addr] == 1 || readCycle != -1) {
+				wait(1);
+				msg = sprintf("Awaiting\nAcknowledge\nOr Transfer\nmessage");
+				cpuDialogBox.setCurrentTask(msg);
+			}
+			readCycle = -1;
+			readConflict = -1;
+			probeCycle = -1;
+			probeConflict = 0;
+			lineModified = 0;
+			//once finished send the data lines down, remove the cpuLock and add a checkpoint.	
+	
+			cpuDialogBox.setTitle("Last Action");
+			if (doWrite == WRITE) {
+				msg = sprintf("Write a%d", addr);
+				cpuDialogBox.setCurrentTask(msg);
+			} else {
+				msg = sprintf("Read a%d", addr);
+				cpuDialogBox.setCurrentTask(msg);
+			}
+			cpuLock = 0;	
+			cpusActive--;
+			checkPoint();	
+					
+		}
+			
+	} // mesif
+	
+	//
+	// CPU.RWButton
+	//
+	class RWButton(num _x, num _y, num _w, num _h, num _addr) {
+
+		num x = _x;
+		num y = _y;
+		num w = _w;
+		num h = _h;
+		num addr = _addr;
+
+		Rectangle background = Rectangle2(0, 0, blackPen, brushsH[addr % NCPU], x, y, w, h, blackPen,0);
+		Rectangle buttonTxt = Txt(0, 0, x + w/2, y + h/2, blackPen, 0, "A%d", addr);
+		Polygon readButton = Polygon(0, ABSOLUTE, blackPen, brushsH[addr % NCPU], x, y, 0, 0, w, 0, 0, h);
+		Polygon writeButton = Polygon(0, ABSOLUTE, blackPen, brushsH[addr % NCPU],  x, y + h, 0,0, w, 0, w, -h);
+		Rectangle rtxt = Txt(0, HLEFT | VTOP, x, y, blackPen, 0, "R");
+		Rectangle wtxt = Txt(0, HRIGHT | VBOTTOM, x + w, y + h, blackPen, 0, "W");
+	    readButton.setOpacity(0);
+		writeButton.setOpacity(0);
+		wtxt.setOpacity(0);
+		rtxt.setOpacity(0);
+		num inUse = 0;
+		
+		//
+		// CPU.RWButton.background.eventEE
+		//
+		when background ~> eventEE(num enter, num, num) {
+			if (inUse == 0) {
+				readButton.setOpacity(enter ? 1 : 0);
+				writeButton.setOpacity(enter ? 1 : 0);
+				rtxt.setOpacity(enter ? 1 : 0);
+				wtxt.setOpacity(enter ? 1 : 0);
+			 }
+		}
+		
+		//
+		// CPU.RWButton.readButton.eventEE
+		//
+		when readButton ~> eventEE(num enter, num, num) {
+			if (inUse == 0) {
+				readButton.setBrush(enter ? brushsS[addr % NCPU] :  brushsH[addr % NCPU]);
+			}
+		}
+		
+		//
+		// CPU.RWButton.writeButton.eventEE
+		//
+		when writeButton ~> eventEE(num enter, num, num) {
+			if (inUse == 0) {
+				writeButton.setBrush(enter ? brushsS[addr % NCPU] :  brushsH[addr % NCPU]);
+			}
+		}
+
+		//
+		// CPU.RWButton.readButton.eventMB
+		//
+		when readButton ~> eventMB(num down, num flags, num, num y) {
+    		if (down && flags & MB_LEFT && inUse == 0) {
+				inUse = 1;
+				start();
+				readButton.setBrush(brushsS[addr % NCPU]);
+        		mesif(addr, READ);
+				readButton.setBrush( brushsH[addr % NCPU]);
+				readButton.setOpacity(0);
+				rtxt.setOpacity(0);
+				writeButton.setOpacity(0);
+				wtxt.setOpacity(0);
+				inUse = 0;
+    		}
+		}
+	
+		//
+		// CPU.RWButton.writeButton.eventMB
+		//		
+		when writeButton ~> eventMB(num down, num flags, num, num y) {
+    		if (down && flags & MB_LEFT && inUse == 0) {
+				inUse = 1;
+				//while(EB_CTRL == 1)
+				//	wait(1);
+	       		mesif(addr, WRITE);
+				readButton.setBrush( brushsH[addr % NCPU]);
+				readButton.setOpacity(0);
+				rtxt.setOpacity(0);
+				writeButton.setOpacity(0);
+				wtxt.setOpacity(0);
+				inUse=0;
+    		}
+		}
+
+	}
+	
+	cpuMemory = Memory();
+	cpuCache = Cache();
+	cpuDataLines = DataLines(x+w2*0.3, y+h*0.421);
+	cpuDataLines2 = DataLines(x+w2*0.3, y+h*0.68);
+	cpuDialogBox = DialogBox();
+	
+ 	r = Rectangle2(0, 0, blackPen, gray192Brush,x+gap,y+h*0.684, w2, h*0.4);
+ 	num tempAddress = 0;
+ 	for (i = 0; i < 4; i++) {
+ 		for (num j = 0; j < NCPU; j++) {
+ 			RWButton(x+gap*2.5+j*(h2*1.25+gap), y+h*0.684+gap+i *(h2*1.25+gap), h2*1.25, h2*1.25, tempAddress);
+ 			tempAddress++;
+ 		}
+ 	}
+	
+} // CPU
+
+//
+// create CPUs
+//
+CPU cpu[NCPU];
+
+cpu[0] = CPU(50 + offset*2, 50+offset, 0);
+cpu[1] = CPU(1200 + offset*2, 50+offset, 1);
+cpu[2] = CPU(50 + offset*2, 1200+offset, 2);
+cpu[3] = CPU(1200 + offset*2, 1200+offset, 3);
+cpu[4] = CPU(2349 + offset*2, 1200+offset, 4);
+
+//
+// addressCheck
+//
+// if the addr is stored in a CPUs memory  accesses it
+// memory access can be cancelledd at any time
+//
+function addressCheck(num addr, num cpuA, num cpuB) {
+		
+	if (addr % NCPU == cpuB) {
+		while(DRAMLock[cpuB] == 1) {
+			wait(1);
+		}
+		DRAMLock[cpuB] = 1;
+		cpu[cpuB].cpuDataLines.moveUp(TICKS*2, 1);
+		if (cpu[cpuA].cancelMemoryAccess == 1) {
+			DRAMLock[cpuB] = 0;
+			return;
+		}
+		cpu[cpuB].cpuMemory.highlight((addr/4) | 0, 0);
+		if (cpu[cpuA].cancelMemoryAccess == 1) {
+			DRAMLock[cpuB]=0;
+			return;
+		}
+		cpu[cpuB].cpuDataLines.moveDown(TICKS*2, 1);
+		DRAMLock[cpuB] = 0;
+		cpu[cpuA].memoryAccessComplete = 1;
+	}
+}
+
+//
+// checkCache
+//
+// checks a cache for a valid copy
+//
+function checkCache(num cpuA, num cpuB, num addr, num flag, num invalidate) {
+	
+	debug("checkCache: cpuA=%d cpuB=%d addr=%d flag=%d invalidate-%d", cpuA, cpuB, addr, flag, invalidate);
+
+	if	(invalidate	== 0) {
+		
+		// if cpuB is currently sending probes for this data reply with a conflict msg
+		if (cpu[cpuB].probeCycle == cpu[cpuA].probeCycle && cpu[cpuB].probeCycle != -1 && cpu[cpuA].probeCycle != -1 && cpuA != cpuB) {
+			
+			if (cpu[cpuB].isCpuWriting == 1) {
+				cpu[cpuA].conflictQueue[addr % 2].addProcess(cpuB + 10);
+				linkPath(cpuB, cpuA, flag, brushsH[cpuA], brushsH[cpuB], addr, "CNFLI:a");
+			} else {
+				cpu[cpuA].conflictQueue[addr % 2].addProcess(cpuB);
+				linkPath(cpuB,cpuA, flag, brushsH[cpuA], brushsH[cpuB], addr, "CNFL:a");
+			}
+			if (cpu[cpuA].conflicts == "") {
+				cpu[cpuA].conflicts=cpu[cpuA].conflicts + sprintf("%d", cpuB);
+			} else {
+				cpu[cpuA].conflicts=cpu[cpuA].conflicts + sprintf(",%d", cpuB);
+			}
+			cpu[cpuA].probeConflict = 1;
+			
+			if(addr%NCPU==cpuB) {
+				cpu[cpuA].memoryAccessComplete = 1;
+			}
+			cpu[cpuA].repliesReturned++;
+			msg = sprintf("Send Probe\nto all Nodes,\nAcks Returned %d/4", cpu[cpuA].repliesReturned - 1);
+			cpu[cpuA].cpuDialogBox.setCurrentTask(msg);
+			return;
+		}
+
+		//if cpuB has send its read msg then halt the ack until it recieves a reply from the cpu
+		if (cpu[cpuB].readCycle == cpu[cpuA].probeCycle && cpu[cpuB].readCycle != -1 && cpu[cpuA].probeCycle != -1 && cpuA != cpuB) {
+			while (cpu[cpuB].readCycle == cpu[cpuA].probeCycle) {
+				wait(1);
+			}
+			if (cpu[cpuB].isCpuWriting == 1) {
+				linkPath(cpuB, cpuA, flag, brushsH[cpuA], brushsH[cpuB], addr, "CNFLI:");
+			} else {
+				linkPath(cpuB, cpuA, flag, brushsH[cpuA], brushsH[cpuB], addr, "CNFL:a");
+			}
+			if (cpu[cpuA].conflicts == "") {
+				cpu[cpuA].conflicts=cpu[cpuA].conflicts + sprintf("%d", cpuB);
+			} else {
+				cpu[cpuA].conflicts=cpu[cpuA].conflicts + sprintf(",%d", cpuB);
+			}
+			cpu[cpuA].repliesReturned++;
+		    cpu[cpuA].readConflict=1;
+			if(addr % NCPU == cpuB) {
+				cpu[cpuA].memoryAccessComplete = 1;
+			}
+			msg = sprintf("Send Probe\nto all Nodes,\nAcks Returned %d/4", cpu[cpuA].repliesReturned - 1);
+			cpu[cpuA].cpuDialogBox.setCurrentTask(msg);
+			return;
+		}	
+		
+		if (cpu[cpuB].cpuCache.addr[addr % 2] == addr) {
+			//halt cpuBs reply until its has recieved an acknowledge
+			while(cpu[cpuB].waitingOnHomeNodeAck[addr] == 1) {
+				wait(1);
+			}
+			
+			//send the data
+			if (cpu[cpuB].cpuCache.addr[addr % 2] == addr && (cpu[cpuB].cpuCache.state[addr % 2] == MODIFIED || cpu[cpuB].cpuCache.state[addr % 2] == EXCLUSIVE || cpu[cpuB].cpuCache.state[addr % 2]==FORWARD)) {
+				cpu[cpuA].mesifUpdateMemory=1;
+				if(cpu[cpuB].cpuCache.state[addr % 2] == MODIFIED) {
+					cpu[cpuB].cpuCache.state[addr % 2] = INVALID;
+					cpu[cpuB].cpuCache.stateRTxt[addr % 2].setTxt("I");	
+					cpu[cpuA].cacheLineFound=cpuB;
+					cpu[cpuB].cpuCache.highlight(addr % 2, 0);
+					cpu[cpuA].lineModified=1;
+					cpu[cpuB].waitingOnHomeNodeAck[addr] = 1;			
+					linkPath(cpuB, cpuA, flag, brushsH[cpuA], brushsH[cpuB], addr, "DataM:a");
+				} else {
+					cpu[cpuB].cpuCache.state[addr % 2]=SHARED;
+					cpu[cpuB].cpuCache.stateRTxt[addr % 2].setTxt("S");	
+					cpu[cpuA].cacheLineFound = cpuB;
+					cpu[cpuB].cpuCache.highlight(addr % 2, 0);
+					cpu[cpuB].waitingOnHomeNodeAck[addr] = 1;
+					linkPath(cpuB, cpuA, flag, brushsH[cpuA], brushsH[cpuB], addr, "DataF:a");
+				}
+				
+				cpu[cpuA].repliesReturned++;
+				if(addr%NCPU == cpuB) {
+					cpu[cpuA].memoryAccessComplete = 1;
+				}
+				msg = sprintf("Send Probe\nto all Nodes,\nAcks Returned %d/4", cpu[cpuA].repliesReturned - 1);
+				cpu[cpuA].cpuDialogBox.setCurrentTask(msg);
+				return;
+			}
+			
+		}
+
+		fork(addressCheck(addr, cpuA, cpuB));
+		linkPath(cpuB, cpuA, flag, brushsH[cpuA], brushsH[cpuB], addr, "IA:a");
+		
+		cpu[cpuA].repliesReturned++;
+		msg = sprintf("Send Probe\nto all Nodes,\nAcks Returned %d/4", cpu[cpuA].repliesReturned - 1);
+		cpu[cpuA].cpuDialogBox.setCurrentTask(msg);
+
+	}
+
+	// basically the same as previous except its for a write
+	if (invalidate == 1) {
+	
+		//if cpuB is currently sending probes for this data reply with a conflict msg
+		if (cpu[cpuB].probeCycle == cpu[cpuA].probeCycle && cpu[cpuB].probeCycle != -1 && cpu[cpuA].probeCycle != -1 && cpuA != cpuB) {
+			
+			if (cpu[cpuB].isCpuWriting == 1) {
+				cpu[cpuA].conflictQueue[addr % 2].addProcess(cpuB + 10);
+				linkPath(cpuB, cpuA, flag, brushsH[cpuA], brushsH[cpuB], addr, "CNFLI:a");	
+			} else {
+				cpu[cpuA].conflictQueue[addr % 2].addProcess(cpuB);
+				linkPath(cpuB, cpuA, flag, brushsH[cpuA], brushsH[cpuB], addr, "CNFL:a");
+			}
+			if (cpu[cpuA].conflicts == "") {
+				cpu[cpuA].conflicts = cpu[cpuA].conflicts + sprintf("%d", cpuB);
+			} else {
+				cpu[cpuA].conflicts=cpu[cpuA].conflicts + sprintf(",%d", cpuB);
+			}
+			cpu[cpuA].probeConflict = 1;
+			
+			if (addr % NCPU == cpuB) {
+				cpu[cpuA].memoryAccessComplete = 1;
+			}
+			cpu[cpuA].repliesReturned++;
+			msg = sprintf("Send Probe Invalidate\nto all Nodes,\nAcks Returned %d/4", cpu[cpuA].repliesReturned - 1);
+			cpu[cpuA].cpuDialogBox.setCurrentTask(msg);
+			return;
+		}
+
+		// if cpuB has send its read msg then halt the ack until it recieves a reply from the cpu
+		if (cpu[cpuB].readCycle == cpu[cpuA].probeCycle && cpu[cpuB].readCycle != -1 && cpu[cpuA].probeCycle!=-1 && cpuA != cpuB) {
+			while (cpu[cpuB].readCycle == cpu[cpuA].probeCycle) {
+				wait(1);
+			}
+			if (cpu[cpuB].isCpuWriting == 1) {
+				linkPath(cpuB, cpuA, flag, brushsH[cpuA], brushsH[cpuB], addr, "CNFLI:a");
+			} else {
+				linkPath(cpuB, cpuA, flag, brushsH[cpuA], brushsH[cpuB], addr, "CNFL:a");
+			}
+			if (cpu[cpuA].conflicts == "") {
+				cpu[cpuA].conflicts = cpu[cpuA].conflicts + sprintf("%d", cpuB);
+			} else {
+				cpu[cpuA].conflicts = cpu[cpuA].conflicts + sprintf(",%d", cpuB);
+			}
+			cpu[cpuA].repliesReturned++;
+		    cpu[cpuA].readConflict = 1;
+			if (addr%NCPU == cpuB) {
+				cpu[cpuA].memoryAccessComplete=1;
+			}
+			msg = sprintf("Send Probe Invalidate\nto all Nodes,\nAcks Returned %d/4", cpu[cpuA].repliesReturned - 1);
+			cpu[cpuA].cpuDialogBox.setCurrentTask(msg);
+			return;
+		}	
+		
+		fork(addressCheck(addr, cpuA, cpuB));
+		if (cpu[cpuB].cpuCache.addr[addr % 2] == addr) {
+			
+			while(cpu[cpuB].waitingOnHomeNodeAck[addr] == 1) {
+				wait(1);
+			}
+			
+			if (cpu[cpuB].cpuCache.addr[addr % 2] == addr && (cpu[cpuB].cpuCache.state[addr % 2] == MODIFIED || cpu[cpuB].cpuCache.state[addr % 2] == EXCLUSIVE || cpu[cpuB].cpuCache.state[addr % 2] == FORWARD)) {
+				
+				if(cpu[cpuB].cpuCache.state[addr % 2] == MODIFIED) {
+					cpu[cpuA].lineModified = 1;
+					cpu[cpuA].mesifUpdateMemory = 1;
+					cpu[cpuB].cpuCache.state[addr % 2] = INVALID;
+					cpu[cpuB].cpuCache.stateRTxt[addr % 2].setTxt("I");	
+					cpu[cpuA].cacheLineFound = cpuB;
+					cpu[cpuB].cpuCache.highlight(addr % 2, 0);
+					cpu[cpuB].waitingOnHomeNodeAck[addr] = 1;
+					linkPath(cpuB,cpuA,flag,brushsH[cpuA],brushsH[cpuB],addr,"DataM:a");
+				} else {
+					if(cpuA != cpuB) {
+						cpu[cpuA].mesifUpdateMemory = 1;
+						cpu[cpuB].cpuCache.state[addr % 2] = INVALID;
+						cpu[cpuB].cpuCache.stateRTxt[addr % 2].setTxt("I");
+					}	
+					cpu[cpuA].cacheLineFound = cpuB;
+					cpu[cpuB].cpuCache.highlight(addr % 2, 0);
+					cpu[cpuB].waitingOnHomeNodeAck[addr] = 1;
+					linkPath(cpuB,cpuA,flag,brushsH[cpuA],brushsH[cpuB], addr, "DataE:a");
+				}
+				cpu[cpuA].repliesReturned++;
+				msg = sprintf("Send Probe Invalidate\nto all Nodes,\nAcks Returned %d/4", cpu[cpuA].repliesReturned-1);
+				cpu[cpuA].cpuDialogBox.setCurrentTask(msg);
+				if (addr % NCPU == cpuB) {
+					cpu[cpuA].memoryAccessComplete = 1;
+				}
+				return;
+			}
+			if (cpuA != cpuB) {
+				cpu[cpuB].cpuCache.state[addr % 2] = INVALID;
+				cpu[cpuB].cpuCache.stateRTxt[addr % 2].setTxt("I");
+			}
+		}
+		fork(addressCheck(addr,cpuA,cpuB));
+		linkPath(cpuB, cpuA, flag, brushsH[cpuA], brushsH[cpuB], addr, "IA:a");
+		cpu[cpuA].repliesReturned++;
+		string msg = sprintf("Send Probe Invalidate\nto all Nodes,\nAcks Returned %d/4", cpu[cpuA].repliesReturned - 1);
+		cpu[cpuA].cpuDialogBox.setCurrentTask(msg);
+	}
+	
+}
+
+//
+// resetButton
+//
+SimpleButton resetButton = SimpleButton(W - 215, H - 75, 160, 60, gray224Brush, gray192Brush, redPen, greenPen, blackPen, bf0, bf1, "Reset");		
+
+//
+// resetButton eventMB
+//
+when resetButton ~> eventMB(num down, num flags, num, num) {
+	if (down && (flags & MB_LEFT))
+		reset();
+	return 0;
+}
+
+// eof

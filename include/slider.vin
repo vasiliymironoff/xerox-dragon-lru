@@ -1,0 +1,80 @@
+//
+// Vivio Slider
+//
+// Copyright (C) 2002 - 2022 jones@scss.tcd.ie
+//
+// This program is free software; you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software Foundation;
+// either version 2 of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+// See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software Foundation Inc.,
+// 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+//
+
+//
+// 17/12/02 first version
+// 29/08/05 Vivio 4.0
+// 02/11/06 modified for new encoding of flags parameter in eventGRABBED
+// 30/01/10 Vivio 6.0
+// 24/07/10 pen now used to draw text
+// 16/02/15 syntax update (constructors + declarations)
+// 12/07/17	VivioJS
+// 12/07/17 added font parameter
+// 10/12/21 added format parameter
+//
+
+class Slider(num _x, num _y, num _w, num _h, num _min, num _max, num _v, Font f, string _format = "%5.1f") {
+
+	num x = _x;
+	num	y = _y;
+	num	w = _w;
+	num	h = _h;
+	num min = _min;
+	num max = _max;
+	num v = _v;
+	string format = _format;
+
+	num offX = 0;
+
+	num px = round(w * (v - min) / (max - min));
+
+	Line(0, 0, blackPen, 0,0, x,y, w,0);
+	Line(0, 0, blackPen, 0,0, x,y-h/2, 0,h);
+	Line(0, 0, blackPen, 0,0, x+w,y-h/2, 0,h);
+
+	Rectangle r = Rectangle(0, ABSOLUTE, 0, redBrush, x + px, y, -4, -8, 8, 16, blackPen, f, format, v);
+	r.setTxtOff(0, -h);
+	Rectangle txtmin = Txt(0, HCENTRE | VTOP, x, y+h, blackPen, f, format, min);
+	Rectangle txtmax = Txt(0, HCENTRE | VTOP, x+w, y+h, blackPen, f, format, max);
+
+	when r ~> eventMB(num down, num flags, num mx, num my) {
+		if (down && (flags & MB_LEFT)) {
+			offX = round(mx - x - px);
+			r.grab();
+			return PROPAGATE;
+		}
+       	return 0;
+    }
+
+	when r ~> eventGRABBED(num eventType, num p0, num p1, num mx, num my) {
+       	px = round(mx - x - offX);
+		if (px < 0)
+           	px = 0;
+		if (px > w)
+			px = w;
+		v = min + (max - min) * px / w;
+    	r.setTxt(format, v);
+       	r.setPos(x + px, y);
+       	if ((eventType == MB) && (p0 == 0) && (p1 & MB_LEFT))
+        	r.ungrab();
+		return PROPAGATE;
+	}
+
+}
+
+// eof

@@ -1,0 +1,72 @@
+//
+// simpleButton.vin
+//
+// Copyright (C) 1997 - 2022 jones@tcd.ie
+//
+// This program is free software; you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software Foundation;
+// either version 2 of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+// See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software Foundation Inc.,
+// 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+//
+
+//
+// 03/06/97 first version
+// 10/08/02 Vivio 2.0
+// 20/01/06 Vivio 4.0
+// 20/02/06 real x,y event parameters
+// 11/08/08 added buttonBG for better hit testing
+// 29/01/10 Vivio 6.0
+// 08/07/10 pen now used to draw text
+// 02/02/15 syntax update (constructors + declarations)
+// 09/03/15 derive from a Group
+// 04/09/16 VivioJS
+// 12/09/16 addEventHandler now used to set up event handlers
+//
+
+//
+// SimpleButton
+//
+class SimpleButton(num x, num y, num w, num h, Brush _b0, Brush _b1, Pen p0, Pen _p1, Pen txtpen, Font _f1, Font _f2, string txt)
+		extends Group(0, 0, x, y, 0, 0, w, h) {
+
+	Brush b0 = _b0;
+	Brush b1 = _b1;
+	Pen p1 = _p1;
+	Font f1 = _f1;
+	Font f2 = _f2;
+
+	num enabled = 1;
+
+	setPen(p0);
+	setBrush(b0);
+	setTxtPen(txtpen);
+	setFont(f1);
+	setTxt(txt);
+	setRounded(4, 4);
+
+ 	Rectangle buttonFG = Rectangle2(0, 0, 0, 0, 1, 1, w - 2, h - 2);
+	buttonFG.setRounded(4, 4);
+ 
+	when ~> eventEE(num enter, num, num) {
+		setBrush(enter ? b1 : b0);
+		return PROPAGATE;
+	}
+		
+	when ~> eventMB(num down, num, num, num) {
+		if (enabled) {
+			setFont(down ? f2 : f1);
+			buttonFG.setPen(down ? p1 : 0);
+		}
+		return PROPAGATE;
+	}
+
+}
+
+// eof

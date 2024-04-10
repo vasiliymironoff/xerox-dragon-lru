@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="canonical" href="https://www.scss.tcd.ie/Jeremy.Jones/VivioJS/vivio.htm" />
+  <title>VivioJS Animations</title>
+  <link rel="icon" type="image/x-icon" href="vivio.ico">
+  <script src="funcs.js"></script>
+</head>
+<body style="background-color:#e0e0e0">
+  <script>
+        header("Animations");
+  </script><br>
+  <div style="margin-left:4%; width:92%;">
+    <table style="padding:0; border:0;">
+
+<!--
+	  <tr>
+		<td style="font-size:large; color:red;"><i>Update (29-Sep-21)</i></td>
+	  </tr>
+
+	  <tr>
+		<td>
+		  <p style="margin-left:2%; margin-right:2%; text-align:justify;">
+			Sort and tree animations from Vivio 5.1 added.
+		  </p>
+		</td>
+	  </tr>
+
+	  <tr>
+		<td style="font-size:large; color:red;"><i>Update (14-Jul-21)</i></td>
+	  </tr>
+
+	  <tr>
+		<td>
+		  <p style="margin-left:2%; margin-right:2%; text-align:justify;">
+		  Many bug fixes and improvements from the original VivioJS release, the most noticeable of which are (i) DLX/MIPS configurations are saved per user instead of in a public namespace and (ii)
+		  DLX/MIPS instructions are set using menus rather than clicking through lists.
+		  Users must register (or login) to save and load previously saved configurations.
+		  </p>
+		</td>
+      </tr>
+-->
+
+      <tr>
+        <td style="font-size:large; color:red;"><i>Background</i></td>
+      </tr>
+
+      <tr>
+        <td>
+          <p style="margin-left:2%; margin-right:2%; text-align:justify;">
+          Vivio animations are interactive browser based animations which can be played and single stepped forwards and backwards.
+          VivioJS is portable implementation of <a href="https://www.scss.tcd.ie/Jeremy.Jones/vivio%205.1/vivio.htm">Vivio 5.1</a>.
+          Since Vivio 5.1 was based on an NPAPI plugin or ActiveX control, Vivio animations could no longer be played in modern browsers.
+		  VivioJS is implemented using HTML5 and JavaScript making Vivio animation portable across browsers, operating systems and machine architectures.
+          The VivioJS implementation comprises two parts (1) a vivio.js runtime and (2) a compiler which converts Vivio code into JavaScript.
+          The latter is needed to map the concurrent actions expressed in Vivio into JavaScript as this is far from straightforward.
+          VivioJS generated animations have been tested using Firefox, Chrome, Opera, Safari, Edge on Windows, Linux, Android, OS X, macOS and iOS.
+          </p>
+        </td>
+      </tr>
+
+      <tr>
+        <td style="font-size:large; color:red;"><i>Controlling Animation Playback</i></td>
+      </tr>
+
+      <tr>
+        <td>
+          <p style="margin-left:2%; margin-right:2%; text-align:justify;">Animation playback is controlled using the mouse buttons, mouse wheel and keys on the
+          keyboard. Start or pause playback by clicking the left mouse button on the animation background. Increase or decrease the animation speed by pressing
+          the CTRL key and rotating the mouse wheel. Single step the animation forwards and backwards by pausing the animation and then rotating the mouse
+          wheel. If the left mouse button is now clicked, playback will resume in the direction of the last step. Snap to the next or previous checkpoint by
+          pausing the animation and then pressing the SHIFT key and rotating the mouse wheel.</p>
+          <p style="margin-left:2%; margin-right:2%; text-align:justify;">The arrow keys, normally on the right hand side of the keyboard, can be used in lieu
+          of a mouse. The left and right arrows are equivalent to rotating the mouse wheel forwards and backwards and the down arrow is equivalent to pressing
+          the left mouse button. Press the up arrow to reset the animation.</p>
+          <p style="margin-left:2%; margin-right:2%; text-align:justify;">Holding down SHIFT and pressing the up arrow will show/hide playback statistics.
+          Holding down CTRL and pressing the up arrow will show/hide the minimum bounding boxes (mbbs) indicating the areas of the screen that are redrawn on
+          each animation step. Finally, remember that F11 makes the browser go full screen.</p>
+        </td>
+      </tr>
+
+      <tr>
+        <td style="font-size:large; color:red;"><i>Computer Architecture</i></td>
+      </tr>
+
+      <tr>
+       	<td>
+          <table style="margin-left:2%; width:96%; border-spacing:0; padding:2px; border:0;">
+            <tbody>
+              <tr>
+                <td>
+                  <a href="dlx/dlx.htm">DLX/MIPS (multiplication program + help)</a>
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <a href="dlx/dlx1.htm">DLX/MIPS (no program)</a>
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <a href="dlx/dlxtutorial.htm">DLX/MIPS tutorial by Edsko De Vries</a>
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <a href="dlx/selectTutorial.php">DLX/MIPS select tutorial configuration (see above)</a>
+                </td>
+              </tr>
+              <tr>
+                <td>&nbsp;</td>
+              </tr>
+              <tr>
+                <td>
+                  <a href="caches/cache.htm">Cache animation</a> (<a href="caches/cacheHelp.htm">description</a>)
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <a href="caches/writeThrough.htm">Write-through cache coherency animation</a> (<a href="caches/writeThroughHelp.htm">description</a>)
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <a href="caches/writeOnce.htm">Write-once cache coherency animation</a> (<a href="caches/writeOnceHelp.htm">description</a>)
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <a href="caches/firefly.htm">Firefly cache coherency animation</a> (<a href="caches/fireflyHelp.htm">description</a>)
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <a href="caches/MESI.htm">MESI cache coherency animation</a> (<a href="caches/MESIHelp.htm">description</a>)
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <a href="caches/ALL%20protocols.htm">ALL cache coherency protocols</a>
+                </td>
+              </tr>
+              <tr>
+                <td>&nbsp;</td>
+              </tr>
+              <tr>
+                <td>
+                  <a href="caches/TSX.htm">Intel TSX MESI cache animation</a> (<a href="caches/TSXHelp.htm">description</a>)
+                </td>
+              </tr>
+            </tbody>
+          </table>
+		</td>
+	  </tr>
+
+      <tr>
+   	  	<td style="font-size:large; color:red;"><br><i>Sorts</i></td>
+      </tr>
+
+      <tr>
+        <td>
+          <table style="margin-left:2%; width:96%; border-spacing:0; padding:2px; border:0;">
+            <tbody>
+              <tr>
+                <td>
+                  <a href="sorts/BubbleSort.htm">Bubble sort</a>
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <a href="sorts/BubbleBackSort.htm">Bubble sort (bubble back variant)</a>
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <a href="sorts/ExchangeSort.htm">Exchange sort</a>
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <a href="sorts/HeapSort.htm">Heap sort</a>
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <a href="sorts/InsertionSort.htm">Insertion sort</a>
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <a href="sorts/QuickSortB.htm">Quicksort (Bentley)</a>
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <a href="sorts/QuickSortW.htm">Quicksort (Wirth)</a>
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <a href="sorts/ShakerSort.htm">Shaker sort</a>
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <a href="sorts/ShellSort.htm">Shell sort</a>
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <a href="sorts/ALL%20sorts.htm">ALL sorts</a>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+		</td>
+	  </tr>
+
+      <tr>
+        <td style="font-size:large; color:red;"><br><i>Trees</i></td>
+      </tr>
+
+      <tr>
+        <td>
+          <table style="margin-left:2%; width:96%; border-spacing:0; padding:2px; border:0;">
+            <tbody>
+              <tr>
+                <td>
+                  <a href="trees/BST.htm">Binary Search Tree (BST)</a>
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <a href="trees/AVLtree.htm">AVL tree</a>
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <a href="trees/BTree.htm">B-tree</a>
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <a href="trees/SplayTree.htm">Splay tree</a>
+                </td>
+              </tr>
+			  <tr>
+                <td>
+                  <a href="trees/ALL%20trees.htm">ALL trees</a>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+		</td>
+	  </tr>
+
+ 	  <tr>
+        <td style="font-size:large; color:red;"><br><i>Miscellaneous</i></td>
+      </tr>
+
+      <tr>
+        <td>
+          <table style="margin-left:2%; width:96%; border-spacing:0; padding:2px; border:0;">
+            <tbody>
+              <tr>
+                <td>
+                  <a href="miscellaneous/nagramHelp.htm">Measurements and angles for making N-pointed wooden stars</a>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+		</td>
+	  </tr>
+
+	  <tr>
+	    <td>
+          <p style="color:red; font-size:larger;"><i>Source Code Distribution</i></p>
+          <p style="text-align:justify; margin-left:2%">A distribution containing the VivioIDE Windows binary, the source code for all the animations and the VivioIDE
+          itself and more is available at <a href="VivioJS%2014-Feb-22.7z">VivioJS 14-Feb-22.7z</a>.
+          <br>See the documentation subdirectory for more information on the distribution content.
+      	</td>
+	  </tr>
+
+	  <tr>
+		<td>
+          <p style="color:red; font-size:larger;"><i>Acknowledgements</i></p>
+          <p style="text-align:justify; margin-left:2%">I would like to thank Edsko De Vries for developing the DLX/MIPS animation during a summer
+          internship and the many students who have helped develop these animations over many years.<br>
+          <br>
+          Please report bugs, missing links or send comments to <a href="mailto:jones@scss.tcd.ie">jones@scss.tcd.ie</a>.<br>
+          Copyright ©
+          <script>
+          d.writeln(date.getFullYear());
+          </script> Jeremy Jones, School of Computer Science and Statistics, Trinity College, Dublin 2, Ireland.</p>
+        </td>
+      </tr>
+    </table>
+  </div>
+  <script>
+    footer("", 2, 0);
+  </script>
+</body>
+</html>

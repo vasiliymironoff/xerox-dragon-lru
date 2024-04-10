@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>VivioJS BST</title>
+  <link rel="shortcut icon"  type="image/x-icon" href="../vivio.ico">
+  <script src="../funcs.js"></script>
+  <script src="../vivio.js"></script>
+  <script src="BST.js"></script>
+</head>
+<body style="margin:0; padding:0">
+  <!-- tabindex needed for keyboard input -->
+  <canvas id="canvas" tabindex="1" style="width:100%; height:100%; position:absolute; overflow:hidden; display:block;">
+    No canvas support
+  </canvas>
+  <script>
+	vplayer = new VPlayer("canvas", BST);
+	ajaxCounter("vivio", "trees");
+  </script>
+</body>
+</html>
+
+

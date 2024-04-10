@@ -1,0 +1,1064 @@
+//
+// TSX.viv
+//
+// Vivio Intel MESI/TSX cache animation
+//
+// Copyright (C) 2002 - 2022 jones@scss.tcd.ie
+//
+// This program is free software; you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software Foundation;
+// either version 2 of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+// See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software Foundation Inc.,
+// 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+//
+
+//
+// 18/11/17 first version (based on MESI.viv)
+// 23/11/17	made public for the first time
+// 12/12/17	added CPU write buffer
+// 12/11/20 added self-test
+// 09/05/21 preload fonts
+//
+
+#include "standard.vin"
+#include "simpleButton.vin"
+
+//
+// demos require font directory copied to demos directory (from www)
+//
+#preloadfont "Open Sans", "../fonts/open-sans-v18-latin-regular.woff", "{weight:400}"
+#preloadfont "Open Sans", "../fonts/open-sans-v18-latin-700.woff", "{weight:700}"
+#preloadfont "Open Sans", "../fonts/open-sans-v18-latin-italic.woff", "{style:'italic', weight:400}"
+
+const num W 		= 1024;				// 16:10
+const num H			=  640;
+
+const num TITLEX	= 10;				// title
+const num TITLEY	= 10;
+const num TITLEH	= 40;
+
+const num BY		= 10;				// buttons
+const num BW		= 100;
+const num BH		= 30;
+
+const num INFOX		= TITLEX;			// info
+const num INFOY		= 60;
+const num INFOW		= 350;
+const num INFOH		= 150;
+
+const num MEMY		= 50;				// memory
+const num MEMW		= 180;
+const num MEMH		= 120;
+
+const num ABUSY		= 280;				// address bus
+const num ABUSW		= 12;				// width of pen used to draw address bus
+const num DBUSY		= 240;				// data bus
+const num DBUSW		= 12;				// width of pen used to draw data bus
+const num SBUSY		= 320;				// SHARED signal
+const num SBUSW		= 8;				// width of pen used to draw shared bus
+
+const num CACHEY	= 370;				// caches
+const num CACHEW	= MEMW;
+const num CACHEH	= 60;
+
+const num CPUY		= 490;				// CPUs
+const num CPUW		= CACHEW;
+const num CPUH		= 80;
+
+const num TY		= CPUY + CPUH + 5;	// xbegin, xend and abort buttons
+
+const num BUSOPY	= 208;				// bus operation
+
+// setVirtualWindow
+setVirtualWindow(0, 0, W, H, 1);
+
+// set ticks per second
+setTPS(20);
+
+// pens
+Pen abortPen = SolidPen(0, 4, RED, ROUND_START | ROUND_END);
+Pen darkGreenPen2 = SolidPen(0, 2, rgba(0, 0.6, 0), ROUND_END);
+Pen gray64Pen2 = SolidPen(0, 2, GRAY64, ROUND_END);
+Pen orangePen2 = SolidPen(0, 2, rgba(1.0, 0.65, 0), ROUND_END);
+Pen redPen2 = SolidPen(0, 2, RED, ROUND_END);
+
+// brushes
+Brush titleBrush = SolidBrush(rgba(0, 0.56, 0.16));	// Irish Green {joj 08/06/21}
+
+// fonts
+Font bf0 = Font("Open Sans", 16, 0);
+Font bf1 = Font("Open Sans", 14, 0);
+Font cpubf0 = Font("Open Sans", 12, 0);
+Font cpubf1 = Font("Open Sans", 10, 0);
+Font font = Font("Open Sans", 18, SMALLCAPS);
+Font infoFont = Font("Open Sans", 14, 0);
+Font labelFont = Font("Open Sans", 18, SMALLCAPS);
+Font lastModifiedFont = Font("Open Sans", 10, ITALIC);
+Font titleFont = Font("Open Sans", 28, 0);
+
+// set background
+setBgBrush(gray224Brush);
+
+// title
+Rectangle title = Rectangle2(0, 0, 0, titleBrush, TITLEX, TITLEY, W/2, TITLEH, whitePen, titleFont, "Intel TSX MESI Cache");
+title.setRounded(5, 5);
+title.setTxtOff(0, 2);
+title.setPt(1, title.getTxtW() + 16, TITLEH);
+
+// simple useage information
+string infoStr =  "Like real hardware, the CPUs can operate in\n";
+infoStr += "parallel. Try pressing a button on different\n";
+infoStr += "CPUs \"simultaneously\". Alternatively select\n";
+infoStr += "buttons on different CPUs with the CTRL key and\n";
+infoStr += "click on the last button without CTRL to start\n";
+infoStr += "simultaneous transactions.";
+
+Rectangle2(0, HLEFT | VCENTRE | JUSTIFY, 0, 0, INFOX, INFOY, INFOW, INFOH, blackPen, infoFont, infoStr);
+
+// lastModified
+Txt(0, HRIGHT | VBOTTOM, W - 10, H - 10, gray192Pen, lastModifiedFont, timeToString(getLastModifiedMS(), "last modified %e-%b-%y"));
+
+const num NCPU 			= 3;					// number of CPUs
+const num NADDR			= 4;					// number of addresses
+const num NSET			= 2;					// number of sets in cache
+
+const num TICKS 		= 20;					// animation speed
+
+const num INVALID 		= 0;					// MESI cache line states
+const num SHARED 		= 1;
+const num EXCLUSIVE 	= 2;
+const num MODIFIED 		= 3;
+
+num xx					= (W-3*CPUW-2*CPUW)/2;	// indentation
+num buglevel			= 0;					// buglevel [0 = bugfree]
+
+num dirtyCPU			= -1;					// indicates CPU supplies dirty data
+num isShared			= 0;					// indicates a shared read
+
+num busLock				= -1;					// -1 or number of CPU with bus lock
+
+num busCycles 			= 0;					// bus cycles counter
+
+// Bus
+// horizontal bus
+class Bus(num x, num y, num w, num l, num fgColour) {
+
+	Pen busPen = SolidPen(0, w, fgColour, ARROW60_START | ARROW60_END);
+	Line arrow = Line2(0, 0, busPen, x, y, l, 0);
+
+	function setColour(num colour) {
+		busPen.setRGBA(colour);
+	}
+
+}
+
+// BusArrow
+// vertical double headed bus arrow
+class BusArrow(num x, num y, num w, num _l, num bgColour, num fgColour) {
+
+	num l = _l;
+	Pen bgPen = SolidPen(0, w, bgColour, ARROW60_START | ARROW60_END);
+	Line bgArrow = Line2(0, 0, bgPen, x, y, 0, l);
+	Pen fgPen = SolidPen(0, w, fgColour, ARROW60_END);
+	Line fgArrow = Line2(0, 0, fgPen, x, y, 0, 0);
+	fgArrow.setOpacity(0);
+
+	function reset() {
+		bgArrow.setOpacity(1);
+		fgArrow.setOpacity(0);
+	}
+
+	//
+	// animates up movement on vertical bus arrow
+	//
+	// may be called with ticks = 0
+	//
+	function moveUp(num ticks, num wait) {
+		fgArrow.setPt(0, 0, l);
+		fgArrow.setPt(1, 0, l);
+		fgArrow.setPt(1, 0, 0, ticks, 0);	// {joj 03/09/20}
+		fgArrow.setOpacity(1, ticks/4, 0);	// {joj 02/09/20}
+		bgArrow.setOpacity(0, ticks, wait);	// {joj 02/09/20}
+	}
+
+	//
+	// animates down movement on vertical bus arrow
+	//
+	// may be called with ticks = 0
+	//
+	function moveDown(num ticks, num wait) {
+		fgArrow.setPt(0, 0, 0);
+		fgArrow.setPt(1, 0, 0);
+		fgArrow.setPt(1, 0, l, ticks, 0);	// {joj 03/09/20}
+		fgArrow.setOpacity(1, ticks/4, 0);	// {joj 02/09/20}
+		bgArrow.setOpacity(0, ticks, wait);	// {joj 02/09/20}
+	}
+
+}
+
+// Memory
+// contains 4 memory locations a0, a1, a2 and a3
+class Memory(num _x, num _y) {
+
+	num mem[NADDR];
+	num stale[NADDR];
+	Rectangle memR[NADDR];
+
+	num x = _x;
+	num y = _y;
+
+	const num bgap = 3;
+	const num bw = MEMW-2*bgap;
+	const num bh = (MEMH-(NADDR+1)*bgap)/NADDR;
+
+	Rectangle r = Rectangle2(0, 0, blackPen, gray192Brush, x, y, MEMW, MEMH);
+	r.setRounded(4, 4);
+	Rectangle2(0, 0, 0, 0, x, y-30, MEMW, 25, redPen, font, "MEMORY");
+
+	BusArrow abus = BusArrow(x+50, y+MEMH, ABUSW, ABUSY-y-MEMH-ABUSW/2, GRAY32, BLUE);
+	BusArrow dbus = BusArrow(x+100, y+MEMH, DBUSW, DBUSY-y-MEMH-DBUSW/2, GRAY32, RED);
+
+	for (num i = 0; i < NADDR; i++) {
+ 		mem[i] = 10;
+ 		stale[i] = 0;
+ 		memR[i] = Rectangle2(0, 0, blackPen, whiteBrush, x+bgap, y+(i+1)*bgap+i*bh, bw, bh, blackPen, bf0, "address: a%d data: %d", i, mem[i]);
+ 		memR[i].setRounded(2, 2);
+	}
+
+	function highlight(num addr, num flag) {
+		memR[addr].setBrush((flag) ? greenBrush : (stale[addr]) ? gray192Brush : whiteBrush);
+	}
+
+	function reset() {
+		for (num i = 0; i < NADDR; i++)
+			highlight(i, 0);
+	}
+
+}
+
+// data, address and shared horizontal busses
+Bus ddbus = Bus(10, DBUSY, DBUSW, W-40, GRAY32);
+Txt(0, 0, xx + CACHEW + CACHEW/2 - 40, DBUSY-20, redPen, labelFont, "data bus");
+Bus aabus = Bus(20, ABUSY, ABUSW, W-40, GRAY32);
+Txt(0, 0, xx + CACHEW + CACHEW/2, ABUSY-20, bluePen, labelFont, "address bus");
+Bus sharedBus = Bus(30, SBUSY, SBUSW, W-40, GRAY32);
+Txt(0, 0, xx + CACHEW + CACHEW/2, SBUSY-15, magentaPen, labelFont, "shared");
+
+// Memory
+Memory memory = Memory((W-MEMW)/2, MEMY);
+
+// busOp
+Rectangle busOp = Rectangle(0, 0, blackPen, whiteBrush, W/2, BUSOPY, 0, 0, 0, 0, 0, infoFont);
+busOp.setOpacity(0);
+busOp.setRounded(4, 4);
+busOp.setTxtOff(0, 1);
+
+function showBusOp(string s) {
+	busOp.setTxt(s);
+	num w = busOp.getTxtW() + 16;
+	busOp.setPt(0, -w/2, -10);
+	busOp.setPt(1, w/2, 10);
+	busOp.setOpacity(1, TICKS, 0);	// {joj 02/09/20}
+}
+
+// bus cycles counter
+Rectangle busCyclesT = Txt(0, HLEFT, 2*W/3, (ABUSY+DBUSY)/2, 0, labelFont, "bus cycles: %d", busCycles);
+
+Cache cache[NCPU];				// caches
+CPU cpu[NCPU];					// CPUs
+
+// Cache
+class Cache(num x, num y, num _cpuN) {
+
+	Rectangle aR[NSET], dR[NSET], stateR[NSET], tbitR[NSET];
+	num a[NSET], d[NSET], state[NSET], tbit[NSET];
+
+	const num cpuN = _cpuN;
+
+	const num bgap = 3;
+	const num bw0 = 20;
+	const num bw1 = (CACHEW-5*bgap-2*bw0)/2;
+	const num bh = (CACHEH-(NSET+1)*bgap)/NSET;
+
+	BusArrow sharedbus = BusArrow(x+bgap+bw0/2, SBUSY+SBUSW/2, SBUSW, y-SBUSY-SBUSW/2, GRAY32, MAGENTA);
+	BusArrow abus = BusArrow(x+2*bgap+bw0+bw1/2, ABUSY+ABUSW/2, ABUSW, y-ABUSY-ABUSW/2, GRAY32, BLUE);
+	BusArrow dbus = BusArrow(x+3*bgap+bw0+3*bw1/2, DBUSY+DBUSW/2, DBUSW, y-DBUSY-DBUSW/2, GRAY32, RED);
+	BusArrow cpuabus = BusArrow(x+CACHEW/4, y+CACHEH, ABUSW, CPUY-CACHEY-CACHEH, GRAY32, BLUE);
+	BusArrow cpudbus = BusArrow(x+3*CACHEW/4, y+CACHEH, DBUSW, CPUY-CACHEY-CACHEH, GRAY32, RED);
+
+	Rectangle r = Rectangle2(0, 0, blackPen, gray192Brush, x, y, CACHEW, CACHEH);
+	r.setRounded(4, 4);
+	Txt(0, HLEFT | VTOP, x+CACHEW-20, y-30, redPen, font, "CACHE %d", cpuN);
+
+	busOp.moveToFront();
+
+	for (num i = 0; i < NSET; i++) {
+		state[i] = INVALID;
+		stateR[i] = Rectangle2(0, 0, blackPen, whiteBrush, x+bgap, y+(i+1)*bgap+i*bh, bw0, bh, blackPen, bf0, "I");
+		stateR[i].setRounded(2,2);
+		tbit[i] = 0;
+		tbitR[i] = Rectangle2(0, 0, blackPen, whiteBrush, x+2*bgap+bw0, y+(i+1)*bgap+i*bh, bw0, bh, blackPen, bf0);
+		tbitR[i].setRounded(2,2);
+		a[i] = 0;
+		aR[i] = Rectangle2(0, 0, blackPen, whiteBrush, x+3*bgap+2*bw0, y+(i+1)*bgap+i*bh, bw1, bh, blackPen, bf0);
+		aR[i].setRounded(2, 2);
+		d[i] = 0;
+		dR[i] = Rectangle2(0, 0, blackPen, whiteBrush, x+4*bgap+2*bw0+bw1, y+(i+1)*bgap+i*bh, bw1, bh, blackPen, bf0);
+		dR[i].setRounded(2, 2);
+	}
+
+	//
+	// helper function to set values
+	//
+	function setValues(num set, num addr, num data) {
+		a[set] = addr;
+		aR[set].setTxt("a%d", addr);
+		d[set] = data;
+		dR[set].setTxt("%d", data);
+	}
+
+	//
+	// highlight cache line
+	//
+	function highlight(num set, num flag) {
+		Brush brush = flag ? greenBrush : whiteBrush;
+		stateR[set].setBrush(brush);
+		tbitR[set].setBrush(brush);
+		aR[set].setBrush(brush);
+		dR[set].setBrush(brush);
+	}
+
+	//
+	// reset CPU address and data busses
+	//
+	function reset() {
+		cpuabus.reset();
+		cpudbus.reset();
+		highlight(0, 0);
+		highlight(1, 0);
+	}
+
+	//
+	// reset ALL busses
+	//
+	function resetBus() {
+		memory.abus.reset();
+		memory.dbus.reset();
+		aabus.setColour(GRAY32);
+		ddbus.setColour(GRAY32);
+		sharedBus.setColour(GRAY32);;
+		memory.reset();
+		for (num i = 0; i < NCPU; i++) {
+			cache[i].abus.reset();
+			cache[i].dbus.reset();
+			cache[i].sharedbus.reset();
+		}
+		busOp.setOpacity(0, TICKS, 0);	// {joj 02/09/20}
+	}
+
+	//
+	// flush data from cache line to memory
+	//
+	function flush(num addr) {
+		num set = addr % NSET;
+		num flushaddr = a[set];
+		abus.moveUp(TICKS, 0);
+		dbus.moveUp(TICKS, 1);
+		aabus.setColour(BLUE);
+		ddbus.setColour(RED);
+		memory.abus.moveUp(TICKS, 0);
+		memory.dbus.moveUp(TICKS, 1);
+		state[set] = EXCLUSIVE;
+		stateR[set].setTxt("E");
+		memory.stale[flushaddr] = 0;
+		memory.memR[flushaddr].setBrush(whiteBrush);
+		memory.mem[flushaddr] = d[set];
+		memory.memR[flushaddr].setTxt("address: a%d data: %d", flushaddr, memory.mem[flushaddr]);
+		resetBus();
+	}
+
+	//
+	// busWatchHelper
+	//
+	// each cache must watch the bus and update its state according to the protocol
+	//
+	// if addr NOT in cache then no action need be taken
+	//
+	// bus read: must assert shared line & update state to SHARED
+	//		  	 if cache line MODIFIED must intervene and place data on bus
+	// bus write: must set state to INVALID
+	//
+	function busWatchHelper(num addr, num rw) {
+
+		num set = addr % NSET;
+
+		//
+		// test if address in cache
+		//
+		num hit = (a[set] == addr) && (state[set] != INVALID);
+
+		//
+		// calculate isShared and dirtyCPU here
+		//
+		if (hit && rw == 0) {
+			isShared = (state[set] == MODIFIED && tbit[set]) ? 0 : 1;
+			if (state[set] == MODIFIED)
+				dirtyCPU = cpuN;
+		}
+
+		abus.moveDown(TICKS, 1);
+
+		//
+		// return if address not in cache
+		//
+		if (hit == 0)
+			return;											// {joj 23/9/17}
+
+		if (rw == 0) {										// read
+
+			// test for transaction abort
+			if (state[set] == MODIFIED && tbit[set]) {
+				dirtyCPU = -1;
+				cpu[cpuN].abortTransaction();
+				return;
+			}
+
+			if ((state[set] == EXCLUSIVE) || (state[set] == MODIFIED)) {
+				if (state[set] == MODIFIED) {
+					cache[cpuN].highlight(set, 1);
+					cache[cpuN].dbus.moveUp(TICKS, 0);		// {joj 11/6/16}
+				}
+				state[set] = SHARED;
+				stateR[set].setTxt("S");
+				highlight(set, 1);
+			}
+			sharedbus.moveUp(TICKS, 1);						// {joj 11/6/16}
+			sharedBus.setColour(MAGENTA);					// {joj 11/6/16}
+
+		} else {											// write
+
+			// test for transaction abort
+			debug("cpu=%d set=%d tbit[set]=%d transaction=%d", cpuN, set, tbit[set], cpu[cpuN].transaction);
+			if (tbit[set])
+				cpu[cpuN].abortTransaction();
+
+			state[set] = INVALID;
+			stateR[set].setTxt("I");
+			highlight(set, 1);
+
+		}
+
+	}
+
+	//
+	// initiate bus watching by other CPUs
+	//
+	function busWatch(num addr, num cpu, num rw) {
+		dirtyCPU = -1;
+		isShared = 0;
+		for (num i = 0; i < NCPU; i++) {
+			if (i != cpu)
+				fork(cache[i].busWatchHelper(addr, rw));
+		}
+		if (rw == 0) {									// {joj 11/6/16}
+			wait(2*TICKS);								// {joj 28/11/17}
+			cache[cpu].sharedbus.moveDown(TICKS, 0);	// {joj 11/6/16}
+		}
+
+	}
+
+	//
+	// getBusLock
+	//
+	// NB: cpu may already have lock
+	//
+	function getBusLock() {
+ 		if (busLock == cpuN)
+ 			return;
+ 		while (busLock >= 0)
+ 			wait(1);
+ 		busLock = cpuN;
+	}
+
+	//
+	// releaseBusLock
+	//
+	function releaseBusLock() {
+ 		busLock = -1;
+ 		wait(1);		// allow other CPUs get busLock
+	}	
+
+	//
+	// read
+	//
+	// miss: read data from memory (or another cache if it intervenes)
+	// hit:  read from cache
+	//
+	function read(num addr, num animateCPUBus) {
+
+		//debug("read");
+
+		busOp.setOpacity(0);
+
+		num set = addr % NSET;
+
+		if (animateCPUBus)
+			cpuabus.moveUp(TICKS, 1);
+
+		// transaction abort
+		if (a[set] != addr && tbit[set] == 1) {
+			cpu[cpuN].abortTransaction();
+			return;
+		}
+
+		// read hit
+		if ((a[set] == addr) && (state[set] != INVALID)) {
+			if (cpu[cpuN].transaction && tbit[set] == 0 && state[set] == MODIFIED) {
+				showBusOp(sprintf("CPU %d flushes a%d from its cache to memory", cpuN, addr));
+				flush(addr);
+				busCycles++;
+				busCyclesT.setTxt("bus cycles: %d", busCycles);
+				releaseBusLock();	// allows other CPUs get bus between flush and read cycles
+				getBusLock();		// get bus again
+				resetBus();
+			}
+			tbit[set] = cpu[cpuN].transaction;
+			tbitR[set].setTxt(tbit[set] ? "T" : "");
+			highlight(set, 1);
+			if (animateCPUBus)
+				cpudbus.moveDown(TICKS, 1);
+			return;
+		}
+
+		//
+		// read miss
+		//
+		// may need to flush MODIFIED cache line
+		// read data from memory
+		// act fairly, release bus between flush and read cycles
+		//
+		getBusLock();
+		resetBus();
+
+		//
+		// flush cache line if MODIFIED
+		//
+		if ((state[set] == MODIFIED) && (buglevel != 2)) {
+			showBusOp(sprintf("CPU %d flushes a%d from its cache to memory", cpuN, addr));
+			flush(addr);
+			busCycles++;
+			busCyclesT.setTxt("bus cycles: %d", busCycles);
+			releaseBusLock();	// allows other CPUs get bus between flush and read cycles
+			getBusLock();		// get bus again
+			resetBus();
+		}
+
+		showBusOp(sprintf("CPU %d reads a%d from memory", cpuN, addr));
+		busCycles++;
+		busCyclesT.setTxt("bus cycles: %d", busCycles);
+		highlight(set, 1);
+		abus.moveUp(TICKS, 1);
+		aabus.setColour(BLUE);
+		memory.abus.moveUp(TICKS, 0);
+ 		fork(busWatch(addr, cpuN, 0));				// {joj 11/6/16}
+ 		wait(TICKS);								// {joj 11/6/16}
+
+		if (dirtyCPU >= 0) {
+		
+			//
+			// read data from another cache
+			//
+			wait(TICKS);							// {joj 11/6/16}
+			showBusOp(sprintf("CPU %d reads a%d from memory - CPU %d intervenes and supplies data from its cache", cpuN, addr, dirtyCPU));
+			ddbus.setColour(RED);
+			memory.dbus.moveUp(TICKS, 0);
+			dbus.moveDown(TICKS, 1);
+			memory.mem[addr] = cache[dirtyCPU].d[set];
+			memory.stale[addr] = 0;
+			memory.memR[addr].setBrush(whiteBrush);
+			memory.memR[addr].setTxt("address: a%d data: %d", addr, memory.mem[addr]);
+			memory.highlight(addr, 1);
+
+		} else {
+
+			//
+			// read data from memory
+			//
+			memory.highlight(addr, 1);
+			memory.dbus.moveDown(TICKS, 1);
+			ddbus.setColour(RED);
+			dbus.moveDown(TICKS, 1);
+
+ 		}
+
+		a[set] = addr;
+		aR[set].setTxt("a%d", addr);
+		d[set] = memory.mem[addr];
+		dR[set].setTxt("%d", d[set]);
+		state[set] = isShared ? SHARED : EXCLUSIVE;
+		stateR[set].setTxt(isShared ? "S" : "E");
+		tbit[set] = cpu[cpuN].transaction;
+		tbitR[set].setTxt(tbit[set] ? "T" : "");
+		releaseBusLock();				// can release bus before...
+		if (animateCPUBus)				// returning data to CPU
+			cpudbus.moveDown(TICKS, 1);
+
+	}
+
+	//
+	// CPU cache write
+	//
+	// miss: read data from memory (or another cache if it intervenes)
+	//		 write data
+	//
+	// hit:  if EXCLUSIVE or MODIFIED write to cache
+	//		 if SHARED write through to memory and ...
+	//		 enter EXCLUSIVE state (other caches will INVALIDTE their copies)
+	//
+	function write(num addr, num v) {
+
+		busOp.setOpacity(0);
+
+		num set = addr % NSET;
+
+		cpudbus.moveUp(TICKS, 0);
+		cpuabus.moveUp(TICKS, 1);
+		highlight(set, 1);
+
+		num transaction = cpu[cpuN].transaction;
+
+		//
+		// write hit and bus NOT needed
+		//
+		if ((a[set] == addr) && ((state[set] == EXCLUSIVE) || (state[set] == MODIFIED))) {
+
+			// flush MODIFIED data if writing to it for the first time in a transaction
+			if (transaction && state[set] == MODIFIED && tbit[set] == 0) {
+				showBusOp(sprintf("CPU %d flushes a%d from its cache to memory", cpuN, addr));
+				flush(addr);
+				busCycles++;
+				busCyclesT.setTxt("bus cycles: %d", busCycles);
+			}
+			setValues(set, addr, d[set] + v);
+			state[set] = MODIFIED;
+			stateR[set].setTxt("M");
+			if (transaction) {
+				tbit[set] = 1;
+				tbitR[set].setTxt("T");
+			} else {
+				memory.stale[addr] = 1;
+				memory.memR[addr].setBrush(gray192Brush);
+			}
+			return;
+
+		}
+
+		while (1) {
+
+			//
+			// write miss 
+			// read data from memory (may need to flush MODIFIED cache line)
+			// return if transaction aborted
+			//
+			if ((state[set] == INVALID) || (a[set] != addr)) {
+				read(addr, 0);
+				if (transaction && (cpu[cpuN].transaction == 0))
+					return;
+			}
+
+			setValues(set, addr, d[set] + v);	// {joj 28/11/17}
+
+			if (state[set] == SHARED) {
+
+				//
+				// write through
+				// wait for bus
+				// return if transaction aborted
+				// re-read data if invalidated while waiting for bus
+				//
+				getBusLock();
+				if (transaction && cpu[cpuN].transaction == 0) {
+					releaseBusLock();
+					break;
+				}
+				if (state[set] == INVALID)
+					continue;		// re-read data
+
+				resetBus();
+
+				if (transaction) {
+					showBusOp(sprintf("CPU %d \"writes\" to a%d to invalidate other cached copies", cpuN, addr));
+				} else {
+					showBusOp(sprintf("CPU %d writes %d to a%d in memory", cpuN, d[set], addr));
+				}
+				busCycles++;
+				busCyclesT.setTxt("bus cycles: %d", busCycles);
+				abus.moveUp(TICKS, 0);
+				dbus.moveUp(TICKS, 1);
+				aabus.setColour(BLUE);
+				ddbus.setColour(RED);
+
+				if (transaction == 0) {					// don't write to memory if a transaction
+					memory.abus.moveUp(TICKS, 0);
+					memory.dbus.moveUp(TICKS, 0);
+				}
+				fork(busWatch(addr, cpuN, 1));
+				wait(2*TICKS);							// {joj 28/11/17}
+
+				if (transaction == 0) {					// don't write to memory if a transaction
+					memory.mem[addr] = d[set];
+					memory.memR[addr].setTxt("address: a%d data: %d", addr, memory.mem[addr]);
+					memory.highlight(addr, 1);
+					state[set] = EXCLUSIVE;
+					stateR[set].setTxt("E");
+				} else {
+					state[set] = MODIFIED;
+					stateR[set].setTxt("M");
+					tbit[set] = 1;
+					tbitR[set].setTxt("T");
+				}
+
+				releaseBusLock();
+				break;
+
+			} else if ((state[set] == EXCLUSIVE) || (state[set] == MODIFIED)) {
+
+				//
+				// write to cache
+				//
+				state[set] = MODIFIED;
+				stateR[set].setTxt("M");
+				if (cpu[cpuN].transaction == 0) {
+					memory.stale[addr] = 1;
+					memory.memR[addr].setBrush(gray192Brush);
+				}
+				busOp.setOpacity(0);
+				break;
+
+			}
+
+			// need to read data again if state[set] == INVALID
+
+		}
+	}
+
+	// startTransaction
+	function startTransaction() {
+		r.setPen(redPen2);
+	}
+
+	// endTransaction
+	function endTransaction() {
+		r.setPen(blackPen);
+		for (num set = 0; set < NSET; set++) {
+			tbit[set] = 0;
+			tbitR[set].setTxt("");
+			if (state[set] == MODIFIED) {
+				memory.stale[a[set]] = 1;
+				memory.memR[a[set]].setBrush(gray192Brush);
+			}
+		}
+	}
+
+	// abortTransaction
+	function abortTransaction() {
+		r.setPen(blackPen);
+		for (num set = 0; set < NSET; set++) {
+			if ((state[set] == MODIFIED) && tbit[set]) {
+				state[set] = INVALID;
+				stateR[set].setTxt("I");
+			}
+			tbit[set] = 0;
+			tbitR[set].setTxt("");
+		}
+	}
+} 
+
+// caches
+cache[0] = Cache((W-3*CACHEW-2*CACHEW)/2, CACHEY, 0);
+cache[1] = Cache((W-3*CACHEW-2*CACHEW)/2+CACHEW+CACHEW, CACHEY, 1);
+cache[2] = Cache((W-3*CACHEW-2*CACHEW)/2+2*CACHEW+2*CACHEW, CACHEY, 2);
+
+// CPU
+class CPU(num x, num y, num _cpuN) {
+
+	const num cpuN = _cpuN;		// already have a global variable cpu[NCPU]
+
+	const num bgap = 3;
+	const num bw = (CPUW-4*bgap)/3;
+	const num bh = (CPUH-(NADDR+1)*bgap)/NADDR;	
+	const num tbw = (CPUW-4*bgap)/3;
+
+	num buttonLock = 0;			// button lock
+	CPUButton selected;			// last button pressed
+
+	num transaction = 0;
+
+	// CPUButton
+	class CPUButton(num _op, num x, num y, num bw, num _addr)
+		extends SimpleButton(x, y, bw, bh, whiteBrush, gray224Brush, gray64Pen, gray128Pen, blackPen, cpubf0, cpubf1, "") {
+
+		num op = _op;
+		num addr = _addr;
+
+		setTxt(op == 0 ? "read a%d" : op == 1 ? "inc a%d" : "dec a%d", addr);
+		
+		// select
+		function select() {
+			if (selected == this) {
+ 				selected.setPen(gray64Pen);
+ 				selected = 0;
+			} else {
+				if (selected)
+					selected.setPen(gray64Pen);
+				selected = this;
+ 				selected.setPen(orangePen2);
+			}
+		}
+
+		// resetCPUs
+		function resetCPUs(num cpuN) {
+ 			for (num i = 0; i < NCPU; i++) {
+				if (cpu[i].selected == 0) {
+					cache[i].reset();
+					cpu[i].resetButtons();
+				}
+ 			}
+		}
+
+		// cpuButtonAction
+		function cpuButtonAction() {
+			resetCPUs(cpuN);
+			if (busLock == -1)					// {joj 9/12/15}
+				cache[cpuN].resetBus();			// {joj 9/12/15}
+			buttonLock = 1;						// {joj 13/7/17}
+ 			cache[cpuN].reset();
+			setPen(darkGreenPen2);
+			if (op == 0) {
+				cache[cpuN].read(addr, 1);
+			} else if (op == 1) {
+				cache[cpuN].write(addr, 1);
+			} else {
+				cache[cpuN].write(addr, -1);
+			}
+ 			//resetCPUs(cpuN);
+ 			selected = 0;						// NB: after resetCPUs()
+ 			checkPoint();
+ 			buttonLock = 0;
+		}
+
+		// eventMB handler
+ 		when ~> eventMB(num down, num flags, num, num) {
+ 			//debug("eventMB down=%08x flags=%08x buttonLock=%d", down | 0, flags | 0, buttonLock);
+			num r = 0;
+			if (down && (flags & MB_LEFT)) {
+ 				r |= REMEMBER;
+ 				if (buttonLock)
+ 					return r;
+				for (num i = 0; i < NCPU; i++)
+					cpu[i].resetButtons();
+				if (flags & MB_CTRL) {
+					select();
+				} else {
+					selected = this;
+					startAction();
+				}
+			}
+			return r;
+ 		}
+
+	}
+
+	CPUButton readB[NADDR];		// read buttons
+	CPUButton incB[NADDR];		// inc buttons
+	CPUButton decB[NADDR];		// dec buttons
+	
+	Rectangle r = Rectangle2(0, 0, blackPen, gray192Brush, x, y, CPUW, CPUH);
+	r.setRounded(4, 4);
+	Txt(0, HLEFT | VTOP, x+CPUW-20, y-30, redPen, font, "CPU %d", cpuN);
+	
+	// resetButtons
+	function resetButtons() {
+		for (num i = 0; i < NADDR; i++) {
+			if (selected != readB[i])
+				readB[i].setPen(gray64Pen);
+			if (selected != incB[i])
+				incB[i].setPen(gray64Pen);
+			if (selected != decB[i])
+				decB[i].setPen(gray64Pen);
+			tStatus.setTxt(transaction ? "Transaction in Progress" : "");
+			abortLR.setOpacity(0);
+			abortRL.setOpacity(0);
+		}
+	}
+
+	// cpuAction
+	function cpuAction() {
+		if (selected && buttonLock == 0)
+			selected.cpuButtonAction();
+	}
+	
+	// create read, write, inc and dec buttons
+ 	for (num i = 0; i < NADDR; i++) {
+ 		readB[i] = CPUButton(0, x+bgap, y+(i+1)*bgap+i*bh, bw, i);
+ 		incB[i] = CPUButton(1, x+2*bgap+bw, y+(i+1)*bgap+i*bh, bw, i);
+		decB[i] = CPUButton(2, x+3*bgap+2*bw, y+(i+1)*bgap+i*bh, bw, i);
+ 	}
+
+	// startTransaction
+	function startTransaction() {
+		if (transaction == 0 && buttonLock == 0) {
+			transaction = 1;
+			cache[cpuN].startTransaction();
+			r.setPen(redPen2);
+			abortLR.setOpacity(0);
+			abortRL.setOpacity(0);
+			tStatus.setTxt("Transaction in Progress");
+		}
+	}
+	
+	// endTransaction
+	function endTransaction() {
+		if (transaction && buttonLock == 0) {
+			transaction = 0;
+			cache[cpuN].endTransaction();
+			r.setPen(blackPen);
+			tStatus.setTxt("Transaction COMMIT");
+		}
+	}
+
+	// abortTransaction
+	function abortTransaction() {
+		debug("abortTransaction");
+		//if (transaction && buttonLock == 0) {
+		if (transaction) {
+			transaction = 0;
+			cache[cpuN].abortTransaction();
+			r.setPen(blackPen);
+			abortRL.setOpacity(1);
+			abortLR.setOpacity(1);
+			tStatus.setTxt("Transaction ABORT");
+		}
+	}
+
+	Rectangle tR = Rectangle(0, 0, blackPen, gray192Brush, x,TY, 0,0, CPUW,2*bgap+bh);
+	tR.setRounded(4, 4);
+
+	// create TSX buttons
+	SimpleButton xbeginButton = SimpleButton(x+bgap, TY+bgap, tbw, bh, whiteBrush, gray224Brush, gray64Pen, gray128Pen, blackPen, cpubf0, cpubf1, "xbegin");
+	SimpleButton xendButton = SimpleButton(x+2*bgap+tbw, TY+bgap, tbw, bh, whiteBrush, gray224Brush, gray64Pen, gray128Pen, blackPen, cpubf0, cpubf1, "xend");
+	SimpleButton xabortButton = SimpleButton(x+3*bgap+2*tbw, TY+bgap, tbw, bh, whiteBrush, gray224Brush, gray64Pen, gray128Pen, blackPen, cpubf0, cpubf1, "xabort");
+
+	Line abortLR = Line(0, 0, abortPen, x,y, 4,4, CPUW-8,CPUH-8);
+	Line abortRL = Line(0, 0, abortPen, x,y, 4,CPUH-4, CPUW-8,-CPUH+8);
+	abortLR.setOpacity(0);
+	abortRL.setOpacity(0);
+
+	Rectangle tStatus = Rectangle2(0, 0, 0, 0, x, TY+3*bgap+bh, CPUW, 20, redPen, font, "");  
+
+	// xbeginButton eventMB handler
+ 	when xbeginButton ~> eventMB(num down, num flags, num, num) {
+		if (down && (flags & MB_LEFT)) {
+			startTransaction();
+			start();
+		}
+	}
+
+ 	// xendButton eventMB handler
+ 	when xendButton ~> eventMB(num down, num flags, num, num) {
+		if (down && (flags & MB_LEFT)) {
+			endTransaction();
+			start();
+		}
+	}
+
+ 	// xbortButton eventMB handler
+ 	when xabortButton ~> eventMB(num down, num flags, num, num) {
+		if (down && (flags & MB_LEFT) && (buttonLock == 0)) {
+			abortTransaction();
+			start();
+		}
+	}
+
+}
+
+// CPUs
+cpu[0] = CPU((W-3*CPUW-2*CPUW)/2, CPUY, 0);
+cpu[1] = CPU((W-3*CPUW-2*CPUW)/2+CPUW+CPUW, CPUY, 1);
+cpu[2] = CPU((W-3*CPUW-2*CPUW)/2+2*CPUW+2*CPUW, CPUY, 2);
+
+// startAction
+function startAction() {
+	start();
+ 	for (num i = 0; i < NCPU; i++)
+		fork(cpu[i].cpuAction());
+}
+
+// buttons
+SimpleButton resetButton = SimpleButton(W-2*BW-2*BW/8, BY, BW, BH, whiteBrush, gray224Brush, gray64Pen2, gray128Pen, blackPen, bf0, bf1, "reset");
+SimpleButton bugButton = SimpleButton(W-BW-BW/8, BY, BW, BH, whiteBrush, gray224Brush, gray64Pen2, gray128Pen, blackPen, bf0, bf1, "bug free!");
+SimpleButton helpButton = SimpleButton(W-2*BW-2*BW/8, BY+BH+BH/4, BW, BH, whiteBrush, gray224Brush,gray64Pen2, gray128Pen, blackPen, bf0, bf1, "help");
+SimpleButton vivioButton = SimpleButton(W-BW-BW/8, BY+BH+BH/4, BW, BH, whiteBrush, gray224Brush,gray64Pen2, gray128Pen, blackPen, bf0, bf1, "VivioJS help");
+
+// resetButton eventMB handler
+when resetButton ~> eventMB(num down, num flags, num, num) {
+	if (down && (flags & MB_LEFT)) {
+		//arg["arg1"] = 0;
+		reset();
+	}
+	return 0;
+}
+
+// bugButton eventMB handler
+when bugButton ~> eventMB(num down, num flags, num, num) {
+	if (down && (flags & MB_LEFT)) {
+		if (buglevel == 2) {
+			buglevel = 0;
+			bugButton.setTxt("bug free!");
+		} else {
+			buglevel++;
+			bugButton.setTxt("bug %d", buglevel-1);
+		}
+	}
+	return 0;
+}
+
+// helpButton eventMB handler
+when helpButton ~> eventMB(num down, num flags, num, num) {
+	if (down && (flags & MB_LEFT))
+		getURL("TSXHelp.htm");
+	return 0;
+}
+
+// vivioButton eventMB handler
+when vivioButton ~> eventMB(num down, num flags, num, num) {
+	if (down && (flags & MB_LEFT))
+		getURL("../vivio.htm");
+	return 0;
+}
+
+//
+// self test
+//
+if (getArgAsNum("selfTest", 0)) {
+
+	// see TSXHelp.htm
+
+	cpu[0].startTransaction();			// 1
+	cpu[1].startTransaction();			// 2
+	cpu[0].incB[0].cpuButtonAction();	// 3
+	cpu[1].readB[0].cpuButtonAction();	// 4
+	cpu[1].incB[0].cpuButtonAction();	// 5
+	cpu[1].endTransaction();			// 6
+
+	debug("FINISHED tick=%d", getTick());
+
+}
+
+// eof

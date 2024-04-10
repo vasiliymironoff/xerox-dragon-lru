@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="canonical" href="https://www.scss.tcd.ie/Jeremy.Jones/caches/MESIFHelp.htm">
+  <link rel="shortcut icon" type="image/x-icon" href="../vivio.ico">
+  <title>VivioJS MESIF help</title>
+  <script src="../funcs.js"></script>
+  <script src="../vivio.js"></script>
+  <script src="MESIF.js"></script>
+  <style>
+        li {padding-left:1em}
+  </style>
+</head>
+<body style="background-color:#e0e0e0;">
+  <script>
+        header("MESIF Cache Coherency Protocol");
+  </script>
+  <table style="margin-left:2%; width:96%; border:0; border-spacing:0; padding:0">
+    <tr>
+      <td>
+        <p style="text-align:justify;"><br>
+        This VivioJS animation is designed to help you understand the MESIF cache coherency protocol. It was initially developed by Stephen Kirk for his 2008
+        final year BAI (Engineering) <a href="Stephen%20Kirk%20BAI%20FYP%202008.pdf">project</a> at Trinity College Dublin.</p>
+        <p style="text-align:justify;">The MESIF protocol is described in <a href="US%20Patent%206,954,829.pdf">US Patent 6,954,829</a> "Non-speculative
+        distributed conflict resolution for a cache coherency protocol" assigned to Intel Corporation (11-Oct-2005). A simpler description of the protocol can
+        be found in <a href="https://www.cs.auckland.ac.nz/~goodman/TechnicalReports/MESIF-2004.pdf">"MESIF: A Two-Hop Cache Coherency Protocol for
+        Point-to-Point Interconnects (2004)"</a> and <a href="https://www.cs.auckland.ac.nz/~goodman/TechnicalReports/MESIF-2009.pdf">"MESIF: A Two-Hop Cache
+        Coherency Protocol for Point-to-Point Interconnects (2009)"</a> both by J.R. Goodman and H.H.J. Hum. There are small differences between the 2004 and
+        2009 descriptions and the patent itself.</p>
+        <p style="text-align:justify;">A multiprocessor is depicted comprising five CPUs (CPU0 .. CPU4) each with their own local cache and memory.</p>
+        <p style="text-align:justify;">Main memory is distributed between the CPUs to provide a global main memory space. Each CPU has four memory locations
+        attached locally, CPU0 a0..a3, CPU1 a4..a7, CPU2 a8..a11 and so on. CPUs can access memory attached to other CPUs by sending messages along the links.
+        Each memory location is initialised with its address (e.g. a10 is initialised with a value of 10). Each CPU's memory locations has its own distinctive
+        colour.</p>
+        <p style="text-align:justify;">There are fast bi-directional point-to-point serial links between CPUs. Equivalent connectivity could be provided using
+        a bi-directional ring bus, cross bar switch or QPI (Quick Path Interconnect) links. Sending a message from CPU2 to CPU1 requires the message to be
+        forwarded by CPU3 and CPU0. In this animation, the route between <i>CPUa</i> and <i>CPUb</i> is fixed and identical to the reverse route between
+        <i>CPUb</i> to <i>CPUa</i>. The limited interconectivity is used to demonstrate that the protocol works when the time to send messages between CPUs
+        differ.</p>
+        <p style="text-align:justify;">The caches are direct mapped and contain two sets. Even addresses (a0, a2, .. a18) map to set 0 and odd addresses (a1,
+        a3, .. a19) map to set 1</p>
+      </td>
+    </tr>
+    <tr>
+      <td style="text-align:center; color:red;">
+        <div style="position:relative;">
+          <!-- tabindex needed for keyboard input -->
+          <canvas id="canvas" style="margin:auto; width:100%; max-width:1024px; display:block;">
+            No canvas support
+          </canvas>
+        </div>Click on diagram to activate animation or <a href="MESIF.htm">here</a> for a full screen version.
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p style="text-align:justify;">Each CPU contains buttons which initiate read or write transactions. Hover the mouse over a button (e.g. a10) and the
+        button is divided along its diagonal with R on the top and W on the bottom. Click on the R or W half to start a R(ead) or W(rite) transaction.</p>
+        <p><img style="margin:0px auto; display:block; border:0;" src="MESIF%20RW%20button.png" alt="MESIF RW button"></p>A "CPU write" writes an incrementing
+        value 100, 200, 300 plus the memory address to the memory location. For example if the first write is to a2, it would write 102 (100 + 2), if the next
+        write is to a11 would write 211 (200 + 11), and so on.
+        <p style="text-align:justify;">The direction of the traffic on the address and data busses are indicated by blue and red arrows respectively. The cache
+        lines and memory location involved in the transaction are coloured green. Stale memory locations are coloured gray.</p>
+        <p style="text-align:justify;">A cache line can be in one of 5 states. <b>I(NVALID):</b> cache line NOT present in cache. <b>E(XCLUSIVE):</b> cache
+        line present in this cache ONLY and identical to copy in memory. <b>M(ODIFIED):</b> cache line present in this cache ONLY and copy in memory out of
+        date (stale). <b>S(HARED):</b> cache line in this cache and possibly other caches and identical to copy in memory. <b>F(ORWARD):</b> cache line in this
+        cache and possibly other caches and identical to copy in memory. Only one copy will be in the F state, the other copies, if any, will be in the S
+        state. The F state indicates that cache line is owned by its CPU.</p>
+        <div style="color:red;">
+          Consider the following sequence of non conflicting <u>read</u> transactions (from reset):
+        </div>
+        <p><u>CPU2 read a2 (uncached)</u></p>
+        <ol>
+          <li>CPU2 checks its cache for a valid copy of a2 (in the E, S, M or F state).</li>
+          <li>Since a2 is not present (miss), CPU2 broadcasts a read shared message "RS a2" to all CPUs, including itself internally.</li>
+          <li>When home CPU0 (has memory location a2 attached) receives the RS message, it initiates a memory access to a2.</li>
+          <li>CPU2 waits for replies from all CPUs.</li>
+          <li>All CPUs reply with an "IACK a2" (Invalid copy ACKnowledgement) as no CPU has a valid cached copy of a2.</li>
+          <li>When all replies are received, CPU2 sends a confirming "READ a2" to home CPU0.</li>
+          <li>CPU0 responds by sending the data read from memory to CPU0 using a "DATAE a2 2" message. DATAE indicates that the data should be stored in CPU2's
+          cache in the E state.</li>
+        </ol>
+        <p><u>CPU2 read a2 (cached locally)</u></p>
+        <ol>
+          <li>CPU2 checks its cache for a valid copy of a2.</li>
+          <li>Since a2 is present (hit), the cached data is returned immediately.</li>
+        </ol>
+        <p><u>CPU3 read a2 (cached by CPU2)</u></p>
+        <ol>
+          <li>CPU3 checks its cache for a valid copy of a2.</li>
+          <li>Since a2 is not present (miss), CPU3 broadcasts "RS a2" to all CPUs, including itself internally.</li>
+          <li>When home CPU0 receives the RS message, it initiates a memory access to a2.</li>
+          <li>CPU3 waits for replies from all CPUs.</li>
+          <li>All CPUs, <u>except CPU2</u>, reply with an "IACK a2" as they do not have a valid copy of a2 in their caches.</li>
+          <li>CPU2 replies with "DATAF a2 2", sending a copy of its cached copy of a2 to CPU3.</li>
+          <li>CPU2 updates its cached copy of a2 to S(hared) and CPU3 to F(orward). CPU2 can now use its cached copy of a2.</li>
+          <li>When all replies are received, CPU0 sends a confirming "CNCL a2" to home CPU0 to cancel the memory request.</li>
+          <li>CPU0 sends "ACK a2" to CPU3 which then sends "DACK a2" to CPU2 (the previous "owner" of a2).</li>
+          <li>The DACK message confirms the change of ownership of the a2 cache line from CPU2 to CPU3 is complete, meaning that CPU2 can now respond to
+          broadcast RS and RFO messages for a2.</li>
+        </ol>
+        <p><u>CPU0 read a2 (cached by CPU2 and CPU3)</u></p>
+        <ol>
+          <li>CPU0 checks its cache for a valid copy of a2.</li>
+          <li>Since a2 is not present (miss), CPU0 broadcasts "RS a2" to all CPUs, including itself internally.</li>
+          <li>When home CPU0 receives the RS message, it initiates a memory access to a2.</li>
+          <li>CPU0 waits for replies from all CPUs.</li>
+          <li>CPU3 replies with a "DATAF a2 2" (as its copy of a2 is in the F state), sending a copy of a2 to CPU0.</li>
+          <li>CPU2 replies with "SACK a2" indicating it has a shared copy of a2. The remaining CPUs reply with "IACK a2" as they do not have a valid copy of a2
+          in their caches.</li>
+          <li>CPU3 updates its copy of a2 to S(hared) and CPU0 to F(orward).</li>
+          <li>CPU0 can use its cached copy of a2 as soon as it's received.</li>
+          <li>There are now three copies of a2 in the system caches, two in the shared state (CPU2 and CPU3) and one in the F state (CPU0).</li>
+          <li>When all replies are received, CPU0 sends a confirming "CNCL a2" message to itself in order to cancel the memory request.</li>
+          <li>CPU0 sends a "ACK a2" message to itself and a "DACK a2" to CPU3 (the previous owner of a2).</li>
+          <li>The DACK message confirms that the change of ownership of the a2 cache line from CPU3 to CPU0 is complete, meaning that CPU0 can respond to
+          broadcast RS and RFO messages for a2 (which may be queued).</li>
+        </ol>
+        <p><u>CPU0 read a10 (uncached)</u></p>
+        <ol>
+          <li>CPU0 checks its cache for a valid copy of a10.</li>
+          <li>Since a10 is not present (miss), CPU0 broadcasts "RS a10" to all CPUs, including itself internally.</li>
+          <li>When the home CPU1 receives the RS message, it initiates a memory access to a10.</li>
+          <li>CPU0 waits for replies from all CPUs.</li>
+          <li>All CPUs reply with an "IACK a10" as no CPU has a valid cached copy of a10.</li>
+          <li>When all replies are received, CPU0 sends a confirming "READ a10" message to the home CPU2.</li>
+          <li>CPU2 sends "DATAE a2 2" to CPU0. Since a2 maps to set 0, it will over write thr previous contents of set 9 (a2 in the F state) DATAE indicates
+          that the data should be stored in CPU0's cache in the E state.</li>
+        </ol>
+        <p><u>CPU4 read a2 (cached by CPU2 and CPU3)</u></p>
+        <ol>
+          <li>CPU4 checks its cache for a valid copy of a2.</li>
+          <li>Since a2 is not present (miss), CPU4 broadcasts "RS a2" to all CPUs, including itself internally.</li>
+          <li>When home CPU0 receives the RS message, it initiates a memory access to a2.</li>
+          <li>CPU4 waits for replies from all CPUs.</li>
+          <li>CPU2 and CPU2 reply with "SACK a2" indicating tehy have shared copies of a2. The remaining CPUs reply with "IACK a2" as they do not have a valid
+          copy of a2 in their caches.</li>
+          <li>When all replies are received, CPU2 sends a confirming "READ a2" message to home CPU0 (although there are shared copies in the S state, there's
+          not a copy in the F state).</li>
+          <li>Home CPU0 sends a "DATAE a2 2" to CPU4. When the message is received by CPU4, it stores the data in the F state (overiding the E state indicated
+          by the DATAE message)</li>
+        </ol>
+        <div style="color:red;">
+          Consider the following sequence of non conflicting <u>read</u> and <u>write</u> transactions (from reset):
+        </div>
+        <p><u>CPU2 read a2 (uncached)</u></p>
+        <ol>
+          <li>CPU2 checks its cache for a valid copy of a2 (in the E, S, M or F state).</li>
+          <li>Since a2 is not present (miss), CPU2 broadcasts a read shared message "RS a2" to all CPUs, including itself internally.</li>
+          <li>When home CPU0 (has memory location a2 attached) receives the RS message, it initiates a memory access to a2.</li>
+          <li>CPU2 waits for replies from all CPUs.</li>
+          <li>All CPUs reply with an "IACK a2" (Invalid copy ACKnowledgement) as no CPU has a valid cached copy of a2.</li>
+          <li>When all replies are received, CPU2 sends a confirming "READ a2" to home CPU0.</li>
+          <li>CPU0 responds by sending the data read from memory to CPU0 using a "DATAE a2 2" message. DATAE indicates that the data should be stored in CPU2's
+          cache in the E state.</li>
+        </ol>
+        <p><u>CPU2 write a2 (cached locally)</u></p>
+        <ol>
+          <li>CPU2 checks its cache for a valid copy of a2.</li>
+          <li>Since a2 is present (hit) and in the E state, it can be written to directly.</li>
+          <li>CPU2 write 102 (100 + the address) to a2.</li>
+          <li>The state changes to M.</li>
+        </ol>
+        <p><u>CPU2 write a2 (cached locally)</u></p>
+        <ol>
+          <li>CPU2 checks its cache for a valid copy of a2.</li>
+          <li>Since a2 is present (hit) and in the M state, it can be written to directly.</li>
+          <li>CPU2 write 202 (200 + the address) to a2.</li>
+        </ol>
+        <p><u>CPU3 read a2 (cached by CPU2)</u></p>
+        <ol>
+          <li>CPU2 checks its cache for a valid copy of a2.</li>
+          <li>Since a2 is not present (miss), CPU3 broadcasts a read shared message "RS a2" to all CPUs, including itself internally.</li>
+          <li>When home CPU0 receives the RS message, it initiates a memory access to a2.</li>
+          <li>CPU3 waits for replies from all CPUs.</li>
+          <li>Before CPU2 can send its copy of a2 to CPU3, it must write back the modified to the home node by sending "WB a2 202" to CPU0.</li>
+          <li>All CPUs reply with an "IACK a2" (Invalid copy ACKnowledgement) as no CPU has a valid cached copy of a2.</li>
+          <li>When all replies are received, CPU2 sends a confirming "READ a2" to home CPU0.</li>
+          <li>CPU0 responds by sending the data read from memory to CPU0 using a "DATAE a2 2" message. DATAE indicates that the data should be stored in CPU2's
+          cache in the E state.</li>
+        </ol>
+        <div style="color:red;">
+          Consider the following sequence of <u><b>conflicting</b></u> transactions (from reset):
+        </div>
+        <p><u>CPU2 read a2</u><br>
+        <u>CPU3 read a2</u><br>
+        <br>
+        <i>Conflicts are resolved using conflict messaging, if two CPUs are requesting the same address they reply with a conflict message to the other, these
+        conflicts are then resolved at the home node. The following diagrams detail a basic conflict resolution between two nodes, there are a multitude of
+        different conflict scenarios but they are all along the basis of this explanation.</i></p>
+        <ol>
+          <li>The two nodes send broadcast probes to every node on the System.</li>
+          <li>No Node in the system has a valid copy of the data they all reply with an Invalid Acknowledgement messages.</li>
+          <li>As node 2 and 3 are currently trying to retrieve a0, on receiving a probe they reply with a conflict message (CNFL), informing the requesting
+          node that it is trying to access the data also. If either node 2 or 3 where requesting the data for a write instead of a read the reply would be an
+          conflict invalidate (CNFLI) message to inform the requesting node that its performing a write. It’s vital that the read and write conflicts are
+          differentiated to maintain coherency in the system.</li>
+          <li>The read requests contain all the conflicts received from the broadcast probes. Node twos request arrives first and it retrieves a valid copy of
+          the data in the E state, the home node stores the conflicts until they are resolved.</li>
+          <li>The home node on receiving node threes read request treats it differently than node twos request as it has conflicts already stored for that
+          address location. If the read request where dealt with normally CPU3 would receive the data in the E state and both CPU2 and CPU3 would have an
+          exclusive copy of the line, this is where the conflict messages intervene.</li>
+          <li>On receiving the read request from node 3 the Home node sends a transfer message (XFER) to node 2, this is possible because due to the conflict
+          messages the home node has stored where the most recent value of the data recedes. As mentioned earlier if one of the CPUs was performing a write
+          opposed to a read operation it would send a conflict invalidate message instead on a conflict message, this is integral to maintaining coherence. To
+          maintain coherence a CPU before performing a write operation must invalidate external copies of the data it’s writing to. To enforce this
+          invalidation when multiple processors request a line, the CNFLI message is used, the home node on seeing a CNFLI will in future send transfer
+          invalidate messages (XFERI) instead of a XFER to ensure there are no out of date copies cached on the system. The XFERI message informs the node to
+          transfer its copy of the data to another node and then invalidate its copy.</li>
+          <li>On receiving the transfer message CPU2 changes the state of its cached a0 value from E to s and forwards a0 onto Node3 in a DataF message. On
+          receiving the copy of a0 in the F state cache 3 stores the line in F.</li>
+          <li>On sending the transfer message the home also sends an acknowledge message to Node 3 to inform that there are no further conflicts and to resume
+          normal operation.</li>
+        </ol>
+      </td>
+    </tr>
+  </table><br>
+  <script>
+	vplayer = new VPlayer("canvas", MESIF);
+	<!-- footer("caches");-->
+  </script>
+</body>
+</html>

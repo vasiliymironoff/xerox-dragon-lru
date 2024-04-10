@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="canonical" href="https://www.scss.tcd.ie/Jeremy.Jones/VivioJS/miscellaneous/nagramHelp.htm" />
+  <title>Measurements and angles for making wooden stars</title>
+  <link rel="shortcut icon" type="image/x-icon" href="../vivio.ico">
+  <script src="../funcs.js"></script>
+  <script src="../vivio.js"></script>
+  <script src="nagram.js"></script>
+</head>
+<body style="background-color:#e0e0e0;">
+
+  <script>
+        header("Measurements and angles for making wooden stars");
+  </script>
+
+  <table style="margin-left:2%; width:96%; border:0; border-spacing:0; padding:0">
+    <tr>
+      <td>
+        <p>This VivioJS animation was inspired by watching the Bearded Woodworker's YouTube video <a href="https://www.youtube.com/watch?v=W6-_GmKdzK4">"How to make a Wooden Star (detailed)"</a>.</p>
+        <p>The video shows a very efficient method for making wooden stars, but measurements are provided for only a single sized 5 pointed star (pentagram).</p>
+        <p>This animation (best viewed on a desktop PC) provides a visual tool for designing stars with 3 to 12 points (vertices) and of diferent sizes. Use the N menu, Units menu and the W, L1 and A1 sliders to calculate the measurements and angles for your bespoke star.</p>
+        <p>A <a href="wood%20n-agrams.xlsx">spreadsheet</a> is also provided for designing stars whose characteristics are beyond the limits of the animation.</p>
+      </td>
+    </tr>
+	<tr>
+      <td style="text-align:center;">
+      	<img src="wooden%20stars.jpg" height=256 alt="photograph of a 5 pointed (pentagram) and a 7 pointed (heptagram) wooden star">
+		<br>
+		5 pointed (pentagram) and 7 pointed (heptagram) wooden stars
+	  </td>
+    </tr>
+    <tr>
+      <td style="text-align:center; color:red;">
+        <!-- tabindex needed for keyboard input -->
+        <!-- position:absolute needed for menus to work -->
+        <canvas id="canvas" style="width:100%; position:absolute; display:block;">
+          No canvas support
+        </canvas>
+        Click on diagram to activate animation or <a href="nagram.htm">here</a> for a full screen version.
+      </td>
+    </tr>
+  </table><br>
+  <script>
+	vplayer = new VPlayer("canvas", nagram);
+	footer("miscellaneous");
+  </script>
+</body>
+</html>

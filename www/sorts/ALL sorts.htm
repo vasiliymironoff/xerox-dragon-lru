@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en" style="height:100%;">
+<head>
+  <meta charset="utf-8">
+  <title>VivioJS ALL sorts</title>
+  <link rel="shortcut icon" type="image/x-icon" href="../vivio.ico">
+  <script src="../funcs.js"></script>
+  <script src="../vivio.js"></script>
+  <script src="bubbleBackSort.js"></script>
+  <script src="bubbleSort.js"></script>
+  <script src="exchangeSort.js"></script>
+  <script src="heapSort.js"></script>
+  <script src="insertionSort.js"></script>
+  <script src="quickSortB.js"></script>
+  <script src="quickSortW.js"></script>
+  <script src="shakerSort.js"></script>
+  <script src="shellSort.js"></script>
+</head>
+<body style="height:100%; background-color:#e0e0e0;">
+  <table style="width:96%; margin-left:2%; height:100%; border-spacing:0;">
+    <tr style="height:90%;">
+      <td>
+        <div style="position:relative; height:100%;">
+          <!-- tabindex needed for keyboard input -->
+          <canvas id="canvas" style="width:100%; height:100%; position:absolute; overflow:hidden; display:block;">
+            No canvas support
+          </canvas>
+        </div>
+      </td>
+    </tr>
+    <tr>
+      <td style="text-align:center; border-top:3px gray solid;">
+      	<input type=button value="Bubble" onclick='vplayer.load(bubbleSort)' style="width:10%">
+	  	<input type=button value="BubbleBack" onclick='vplayer.load(bubbleBackSort)' style="width:10%">
+	  	<input type=button value="Exchange" onclick='vplayer.load(exchangeSort)' style="width:10%">
+	  	<input type=button value="Heap" onclick='vplayer.load(heapSort)' style="width:10%">
+	  	<input type=button value="Insertion" onclick='vplayer.load(insertionSort)' style="width:10%">
+	  	<input type=button value="Quicksort (Bentley)" onclick='vplayer.load(quickSortB)' style="width:10%">
+	  	<input type=button value="Quicksort (Wirth)" onclick='vplayer.load(quickSortW)' style="width:10%">
+	  	<input type=button value="Shaker" onclick='vplayer.load(shakerSort)' style="width:10%">
+	  	<input type=button value="Shell" onclick='vplayer.load(shellSort)' style="width:10%">
+      </td>
+    </tr>
+  </table>
+  <script>
+	vplayer = new VPlayer("canvas", bubbleSort);
+	ajaxCounter("vivio", "sorts");
+  </script>
+</body>
+</html>

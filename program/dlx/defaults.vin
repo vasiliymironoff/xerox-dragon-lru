@@ -1,0 +1,56 @@
+//
+// default.vin
+//
+// Simulation of a DLX/MIPS CPU
+// Edsko de Vries Summer Internship 2003
+//
+// Copyright (C) 2003 - 2022 Edsko de Vries and jones@scss.tcd.ie
+//
+// This program is free software; you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software Foundation;
+// either version 2 of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+// See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software Foundation Inc.,
+// 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+//
+
+//
+// pen widths
+//
+const num THIN = 1;
+const num MEDIUM = 3;
+
+//
+// colours (NB: web-safe)
+//
+const num DARKBLUE = rgba(0.0, 0.0, 0.625);
+const num IRISHGREEN = rgba(0, 0.56, 0.16);
+const num LIGHTBLUE = rgba(0.75, 1.0, 1.0);
+const num PURPLE = rgba(0.75, 0.625, 0.75);
+const num ORANGE = rgba(1.0, 0.55, 0.0);
+
+//
+// Pens
+//
+Pen blackPen = SolidPen(0, 1, BLACK);				// {joj 02/10/16}
+Pen gray64Pen = SolidPen(0, 0, GRAY64);				// {joj 25/07/10}
+Pen redPen = SolidPen(0, 0, RED);					// {joj 02/10/16}
+Pen whitePen = SolidPen(0, 0, WHITE);				// {joj 02/10/16}
+
+//
+// Brushes
+//
+Brush blackBrush = SolidBrush(BLACK);				// {joj 02/10/16}
+Brush gray192Brush = SolidBrush(GRAY192);			// {joj 17/10/16}
+Brush gray224Brush = SolidBrush(GRAY224);			// {joj 17/10/16}
+Brush redBrush = SolidBrush(RED);					// {joj 02/10/16}
+Brush titleBrush = SolidBrush(IRISHGREEN);			// {joj 08/06/21}
+Brush whiteBrush = SolidBrush(WHITE);				// {joj 02/10/16}
+Brush yellowBrush = SolidBrush(YELLOW);				// {joj 02/10/16}
+
+// eof

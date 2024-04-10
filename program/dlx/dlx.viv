@@ -1,0 +1,90 @@
+//
+// dlx.viv
+//
+// Simulation of a DLX/MIPS CPU
+// Edsko de Vries Summer Internship 2003
+//
+// Copyright (C) 2003 - 2022 Edsko de Vries and jones@scss.tcd.ie
+//
+// This program is free software; you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software Foundation;
+// either version 2 of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+// See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software Foundation Inc.,
+// 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+//
+
+//
+// 13/03/04 added code to initialise memory with a multiplication program
+// 15/03/04 avoid unnecessary dynamic creation of brushes and pens
+// 05/05/04 allow a number of initial programs
+// 04/11/04 added labels to output of register file
+// 19/11/04 fixed bug labeling output of register file when executing immediate instructions!
+// 23/01/06 Vivio 4.0
+// 31/01/06 simplified animated clock
+// 20/02/06 real x,y event parameters
+// 30/08/06 renamed getIntArg() to getArgAsInt and setIntArg() to setArgFromInt()
+// 25/10/06 simpler user interface for starting DLX clock
+// 25/10/06 remember configuration on reset
+// 01/11/06 fix bugs with branch prediction
+// 11/01/07 replaced TCD logo with Vivio logo
+// 13/03/07 return EV_FORGET in some event handlers which call getURL
+// 19/05/07 logo now uses a hand cursor
+// 29/07/08 added haltOnHalt functionality
+// 05/08/09 Vivio 5.1
+// 30/01/10 Vivio 6.0
+// 25/07/10 pen now used to draw text
+// 18/08/10 rgba
+// 06/09/10 setPostClip() -> setPostClipPath()
+// 22/10/10 integrated "defaults.vin" with "standard.vin"
+// 28/10/10 modifed instrText() as string now really passed by value
+// 31/10/10 replaced s0.format(fs, ...) with s0 = format(fs, ...)
+// 19/02/15 syntax update (constructors + declarations)
+// 02/10/16 VivioJS
+// 15/07/17 used Group clipping for AnimatedClock
+// 09/05/21 preload fonts
+// 31/05/21 reworked save and load configuration
+//
+
+//
+// stats running multiplication example sst=1024 1024x640 (18-Oct-20) 
+//
+// VivioIDE	(5.15.1) FORWARD avg=1.4ms (0.8ms) BACK avg=4.9ms (0.4ms)
+// FF (81.0.2)		 FORWARD avg=2.3ms (1.5ms) BACK avg=6.8ms (1.0ms)
+// Chrome (86.0)	 FORWARD avg=1.5ms (0.9ms) BACK avg=7.0ms (0.8ms)
+//
+// stats running multiplication example sst=1024 1024x640 (06-Jan-21) 
+//
+// VivioIDE	(5.15.2) FORWARD avg=0.9ms (0.8ms) BACK avg=4.3ms (0.7ms)
+// FF (84.0.1)		 FORWARD avg=1.7ms (1.5ms) BACK avg=9.3ms (1.3ms)
+// Chrome (87.0)	 FORWARD avg=1.1ms (0.9ms) BACK avg=5.7ms (0.9ms)
+//
+
+#include "defaults.vin"
+#include "config.vin"
+#include "instructions.vin"
+#include "instructionmemory.vin"
+#include "instructionregister.vin"
+#include "register.vin"
+#include "component.vin"
+#include "alu.vin"
+#include "animatedpipe.vin"
+#include "animatedclock.vin"
+#include "button.vin"
+#include "schematic.vin"
+#include "execution.vin"
+#include "buttonhandlers.vin"
+
+//
+// demos require fonts copied to demos directory (from www)
+//
+#preloadfont "Open Sans", "../fonts/open-sans-v18-latin-regular.woff", "{weight:400}"
+#preloadfont "Open Sans", "../fonts/open-sans-v18-latin-700.woff", "{weight:700}"
+#preloadfont "Open Sans", "../fonts/open-sans-v18-latin-italic.woff", "{style:'italic', weight:400}"
+
+// eof

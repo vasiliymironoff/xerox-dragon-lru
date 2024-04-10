@@ -1,0 +1,202 @@
+//
+// DropDown widget
+//
+// Copyright (C) 2005 - 2022 jones@scss.tcd.ie
+//
+// This program is free software; you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software Foundation;
+// either version 2 of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+// See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software Foundation Inc.,
+// 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+//
+
+//
+// 03/08/05 first version
+// 08/12/21 ViviJS
+//
+
+class DropDown(Layer _layer, num _fs, num _x, num _y, num _w, num _h, Font _f) extends Group(layer, 0, 0,0, 10,10) {
+
+	Layer layer = _layer;
+	num fs = _fs;
+	num x = _x;
+	num y = _y;
+	num w = _w;
+	num h = _h;
+	Font f = _f;
+
+    //function select(int);               // forward
+    //function showcells(int);            // forward
+
+    Brush b0 = SolidBrush(GRAY192);			// background
+    Brush b1 = SolidBrush(BLACK);				// text / selected down arrow
+	Brush b2 = SolidBrush(GRAY128);			// down arrow
+    Brush b3 = SolidBrush(WHITE);				// inverted text
+    Pen p1 = SolidPen(0, 1, BLACK);			// pen for line
+
+    //setOptions(getOptions() | fs ? FIXEDSZ : 0); 	// fixed size or scale with window
+    num active = 0;                         			// not active initially
+
+    //
+    // internal class for a drop down cell
+    //
+	class DropDownCell(num _id, num _x, num _y, num _w, num _h, string _txt) {
+
+		num id = _id;
+		num x = _x;
+		num y = _y;
+		num w = _w;
+		num h = _h;
+		string txt = _txt;
+
+        Rectangle cell = Rectangle2(layer, HLEFT, 0, 0, x, y, w, h, p1, f, txt);
+        cell.setOpacity(0);
+
+		when cell ~> eventEE(num enter, num, num) {
+       		cell.setBrush(enter ? b1 : b0);
+       		//cell.setTxtBrush(enter ? b3 : b1);
+		}
+
+		when cell ~> eventMB(num button, num, num, num) {
+			if (button & MB_LEFT) {
+        		select(id);
+				showcells(0);
+				//return EV_NOPROPAGATE;
+       		}
+       	}
+
+    }
+
+    num n = 0;				// number of cells
+    string txt[num];		// cell txt
+    DropDownCell dd[num];	// drop down cells
+
+    Rectangle b = Rectangle2(layer, 0, 0, b0, 0, 0, w, h);
+    Rectangle r = Rectangle2(layer, HLEFT, 0, redBrush, 0, 0, w, h, p1, f);
+    num tsz = h/2;
+    num border = (h-tsz)/2;
+    Polygon down = Polygon(layer, ABSOLUTE, 0, b2, 0,0, w-tsz-border,border, w-border,border, w-tsz/2-border,h-border);
+    Line l = Line2(layer, 0, p1, 0,h-1, w,0);    // NB -1
+    b.setOpacity(0);
+    l.setOpacity(0);
+
+    //
+    // add cell to drop down list
+    //
+    num function add(string str) {
+        txt[n] = str;
+        dd[n] = DropDownCell(n, 0, h+n*h, w, h, str);
+        n++;
+        b.setPt(1, w, (n+1)*h);
+    }
+
+    //
+    // select cell i
+    //
+    function select(num i) {
+		debug("select(%d)", i);
+        if (i < n) {
+            r.setTxt(txt[i]);
+            dd[i].cell.setBrush(0);
+            dd[i].cell.setTxtPen(p1);
+            //callBack(this, i);
+        }
+    }
+
+    //
+    // get txt for cell i
+    //
+    string function getTxt(num i) {
+        return i < n ? txt[i] : "????";
+    }
+
+    //
+    // show or hide drop down cells
+    //
+    function showcells(num show) {
+        for (num i = 0; i < n; i++) {
+            dd[i].cell.setOpacity(show ? 1 : 0);
+        }
+        b.setOpacity(show ? 255 : 0);
+        l.setOpacity(show ? 255 : 0);
+        active = show;
+    }
+
+    //
+    // set colour scheme
+    //
+    function setcolours(num c0, num c1, num c2, num c3) {
+        //b0.setColours(c0);
+        //b1.setColours(c1);
+        //b2.setColours(c2);
+        //b3.setColours(c3);
+        //p1.setColours(c1);
+    }
+
+    //
+    // enter/exit event handler for DropDown background
+    //
+	when b ~> eventEE(num enter, num, num) {
+		debug("eventEE");
+//         if (enter == 0)
+//             b.grab();
+//         end;
+// 		return EV_NOPROPAGATE;
+     }
+
+    //
+    // grabbed event handler for background
+    //
+    // v subdivided into four 8 bit fields
+    //
+    // [keyflags | key or buttons | hit | etype]
+    //
+ //    when b.eventGRABBED(num v, num x, num y) {
+//         if (v & GRAB_HIT) {		// hit
+//             b.ungrab();
+//             return 0;			// propagate event
+//         }
+//         if (v & GRAB_LEFT) {	//  left button press
+//             b.ungrab();
+//             showcells(0);
+//         }
+// 		return EV_NOPROPAGATE;
+//     }
+
+    //
+    // hightlight down arrow
+    //
+	when down ~> eventEE(num enter, num x, num y) {
+		down.setBrush(enter ? b1 : b2);
+	}
+
+    //
+    // show or hide drop down cells
+    //
+	when r ~> eventMB(num down, num, num, num) {
+		debug("eventMB");
+//         if (flags & EB_LEFT) {
+//             active ^= 1;
+             //showcells(active);
+			showcells(1);
+//         }
+// 		return EV_NOPROPAGATE;
+	}
+
+    function show(num v) {
+        v = (v) ? 255 : 0;
+        r.setOpacity(v);
+        down.setOpacity(v);
+    }
+
+    setPos(x, y);
+
+}
+
+// eof

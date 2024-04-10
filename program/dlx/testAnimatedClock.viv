@@ -1,0 +1,43 @@
+//
+// testAnimatedClock.viv
+//
+// Copyright (C) 2003 - 2022 Edsko de Vries and jones@scss.tcd.ie
+//
+// This program is free software; you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software Foundation;
+// either version 2 of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+// See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software Foundation Inc.,
+// 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+//
+
+//
+// check save/restore of an extended GObj state
+
+//
+// 15/10/20 first version
+//
+
+const num W	= 1024;
+const num H = 620;
+const num ORANGE = 0xfffda50f;
+Pen blackPen = SolidPen(0, 0, BLACK);
+Brush blackBrush = SolidBrush(BLACK);
+Brush whiteBrush = SolidBrush(WHITE);
+Layer activePipesLayer = Layer(30);
+
+setVirtualWindow(0, 0, W, H, 1);
+
+include "animatedclock.vin"
+
+AnimatedClock animatedClock = AnimatedClock(W/2 - 150, H/2 - 50, 300, 100) 
+
+for (num i = 0; i < 51; i++)
+	animatedClock.clockCycle(80);
+
+// eof

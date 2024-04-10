@@ -1,0 +1,1317 @@
+//
+// MESIF.viv
+//
+// Vivio MESIF cache coherency protocol animation
+//
+// Copyright (C) 2020 - 2022 Stephen Kirk and jones@scss.tcd.ie
+//
+// This program is free software; you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software Foundation;
+// either version 2 of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+// See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software Foundation Inc.,
+// 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+//
+//
+// 30/04/08	first version Stephen Kirk BAI FYP 2008
+// 17/12/20 VivioJS
+// 09/05/21 preload fonts
+//
+
+//
+// a CPU can have only one transaction in progress at a time, but
+// multiple transactions from different CPUs can occur in parallel
+// only allow one msg at a time on a link
+//
+
+//
+// include files
+//
+#include "standard.vin"
+#include "simpleButton.vin"
+
+//
+// demos require font directory copied to demos directory (from www)
+//
+#preloadfont "Open Sans", "../fonts/open-sans-v18-latin-regular.woff", "{weight:400}"
+#preloadfont "Open Sans", "../fonts/open-sans-v18-latin-700.woff", "{weight:700}"
+#preloadfont "Open Sans", "../fonts/open-sans-v18-latin-italic.woff", "{style:'italic', weight:400}"
+
+//
+// constants
+//
+const num W = 3200;			// 16:10
+const num H = 2000;
+
+const num TICKS = 50;		// ticks per second
+	
+const num NCPU = 5;			// number of CPUs
+const num NLINK = 4;		// number of CPU links
+
+const num BORDER = 50;		// border
+
+const num NMEM = 4;			// # memory locations per cpu
+const num MEMW = 150;		// memory width
+const num MEMH = 48;		// memory height
+const num MEMTXTH = 30;		// "memory" text height
+
+const num BUSW = 25;		// bus width (line width)
+const num BUSH = 120;		// bus height
+const num BUSLABELW = 100;	// bus label width
+const num BUSLABELH = 40;	// bus label height
+
+const num NCACHE = 2;		// # cache lines
+const num CACHEH = MEMH;	//
+const num CTXTW = 0;		//
+const num CSTATEW = 50;		//
+
+const num BB = 5;			// button border
+const num BW = MEMW;		// button width
+const num BH = MEMH;		// button height
+
+const num LINKPENW = 20;	// link pen width
+const num LINKOFF = 60;		// link offset
+const num LINKLABELW = 100;	// link label width
+const num LINKLABELH = 30;	// link label height
+
+const num CPUW = (BW + BB)*NMEM + BB;
+const num CPUH = BB + MEMTXTH + MEMH + BUSH + NCACHE*CACHEH + BUSH + NCPU*(BH + BB);
+
+const num CADDRW = (CPUW - 2*BB - CTXTW - CSTATEW) / 2;
+const num CDATAW = CADDRW;
+
+const num BROADCAST = 255;	// broadcast address
+
+const num MSGH = 40;		// msg height
+
+const num NOP = 0;			// no op in progress
+const num READOP = 1;		// read op in progress
+const num WRITEOP = 2;		// write op in progress
+
+const num I = 0;			// invalid
+const num E = 1;			// exclusive
+const num S = 2;			// shared
+const num M = 3;			// modified
+const num F = 4;			// forward
+
+const num GETS = 0;			// Get Shared msg (PRL, RS)
+const num GETX = 1;			// Get Exclusive msg (PRIL, RFO)
+const num PIL = 2;			// Probe Invalidate Line msg
+const num IACK = 3;			// invalid acknowledge msg
+const num SACK = 4;			// shared acknowledge msg
+const num ACK = 5;			// ACK msg
+const num DACK = 6;			// DACK msg
+const num DATAE = 7;		// DATAE msg
+const num DATAM = 8;		// DATAM msg
+const num DATAF = 9;		// DATAF msg
+const num WB = 10;			// write back msg
+const num XFR = 11;			// XFR msg (transfer)
+const num READ = 12;		// read msg
+const num CNCL = 13;		// cancel msg
+const num CNFL = 14;		// CNFL msg (conflict)
+
+const num WRINC = 100;		// write increment
+
+string stateTxt[5] = {"I", "E", "S", "M", "F"};
+
+string opTxt[num] = {
+	"GETS", 
+	"GETX",
+	"PIL",
+	"IACK",
+	"SACK",
+	"ACK",
+	"DACK",
+	"DATAE",
+	"DATAM",
+	"DATAF",
+	"WB",
+	"XFR",
+	"READ",
+	"CNCL",
+	"CNFL"
+};
+
+setVirtualWindow(0, 0, W, H, 1);
+setBgBrush(gray224Brush);
+setTPS(TICKS);
+
+//
+// a mechanism is needed to stop the animation clock when all transaction are complete
+// this is because a handleMsg "process" is executed by each CPU
+// work is incremented at rthe start of a transaction and decremented when complter
+// if work == 0 then the animation clock is stopped
+// if there are allternative end points for a tranaction, work is increment for each one and decrement when eache finished
+//
+num work = 0;				// work to do
+
+//
+//
+//
+num wrval = WRINC;			// write wrval + addr
+
+
+//
+//
+num xx, yy;					// general global variables
+
+Msg freeMsgQ = 0;			// free msg Q
+
+//
+// layers
+//
+Layer layer10 = Layer(10);	// layer
+
+//
+// fonts
+//
+Font f0	= Font("Open Sans", 36);
+Font f1	= Font("Open Sans", 32);
+Font f2	= Font("Open Sans", 26, ITALIC);
+Font linkFont = Font("Open Sans", 35, ITALIC);
+Font lastModifiedFont = Font("Open Sans", 30, ITALIC);
+Font msgFont = Font("Open Sans", 35)
+Font titleFont = Font("Open Sans", 80, 0);
+
+//
+// pens
+//
+Pen linkPen = SolidPen(0, LINKPENW, GRAY128, ARROW60_END);
+Pen thickGreenPen = SolidPen(0, 6, rgba(0.0, 0.6, 0), ROUND_END);
+Pen thickOrangePen = SolidPen(0, 4, rgba(1.0, 0.55, 0), ROUND_END);
+Pen thickRedPen = SolidPen(0, 4, rgba(1.0, 0.0, 0), ROUND_END);
+Pen busBgPen1 = SolidPen(0, BUSW, GRAY224, ARROW60_END);
+Pen busBgPen2 = SolidPen(0, BUSW, GRAY224, ARROW60_START | ARROW60_END);
+Pen busFgPenAddr = SolidPen(0, BUSW, RED, ARROW60_END);
+Pen busFgPenData = SolidPen(0, BUSW, BLUE, ARROW60_END);
+
+//
+// brushes
+//
+Brush titleBrush = SolidBrush(rgba(0, 0.56, 0.16));	// Irish Green {joj 08/06/21}
+
+Brush memBrush[5];	// for memory
+Brush memBrushS[5];	// for memory when selected
+
+memBrush[0] = SolidBrush(rgba(1.0, 1.0, 0.6));
+memBrush[1] = SolidBrush(rgba(1.0, 0.7, 0.7));
+memBrush[2] = SolidBrush(rgba(0.7, 1.0, 0.7));
+memBrush[3] = SolidBrush(rgba(0.6, 0.7, 1.0));
+memBrush[4] = SolidBrush(rgba(1.0, 0.8, 0.2));
+
+memBrushS[0] = SolidBrush(rgba(0.8, 0.8, 0.4));
+memBrushS[1] = SolidBrush(rgba(0.8, 0.5, 0.5));
+memBrushS[2] = SolidBrush(rgba(0.5, 0.8, 0.5));
+memBrushS[3] = SolidBrush(rgba(0.4, 0.5, 0.8));
+memBrushS[4] = SolidBrush(rgba(0.8, 0.6, 0.0));
+
+//
+// title
+//
+Rectangle title = Rectangle2(0, 0, 0, titleBrush, 10, 10, W/2, 100, whitePen, titleFont, "MESIF Protocol");
+title.setRounded(5, 5);
+title.setTxtOff(0, 2);
+title.setPt(1, title.getTxtW() + 40, 100);
+
+//
+// lastModified
+//
+Txt(0, HRIGHT | VBOTTOM, W - BORDER, H - 10, gray192Pen, lastModifiedFont, timeToString(getLastModifiedMS(), "last modified %e-%b-%y"));
+
+//
+// workEnd
+//
+function workEnd() {
+	//debug("workEnd() work=%d", work);
+	if (--work == 0) {
+		debug("stop tick=%d", getTick());
+		stop();
+	}
+}
+
+//
+// CPU
+//
+class CPU(num _x, num _y, num _cpuN) extends Group(0, HLEFT | VTOP, _x,_y, 0,0, CPUW,CPUH) {
+
+	num x = _x;
+	num y = _y;
+	num cpuN = _cpuN;
+
+	// state of current op
+	num opLock = 0;					// set during operation
+	num op = NOP;					// op in progress 0: nop, 1:read, 1:write
+	num opAddr = -1;				// op address
+	num opFlags = 0;				// op flags
+	num opWrval = 0;				// op write value
+	//num opState = 0;				// op state
+	num opReplyCnt = 0;				// op reply count
+	num opFormerOwner = -1;			// op former cache line owner
+	num opConflictMask;				// bit mask of conflicting CPUs
+
+	RWButton rwButton[NCPU*NMEM];	// cpu rw buttons
+	num buttonsLock = 0;			// button lock
+	RWButton selected = 0;			//
+
+	num i, j, xx, yy;
+
+	Link txLink[NLINK];				// transmit links
+	Link rxLink[NLINK];				// receive links
+	for (i = 0; i < NLINK; i++)
+		txLink[i] = rxLink[i] = 0;
+
+	MsgQ msgQ = MsgQ();
+
+
+	//
+	// a2CPU
+	//
+	num function a2CPU(num a) {
+		return a / NMEM | 0;
+	}
+
+	//
+	// MemOp
+	//
+	class MemOp() {
+		num owner = -1;
+		num conflicts = 0;
+		//num served = 0;
+	}
+
+	MemOp memOp[NMEM];				// should stored in an fully associative cache
+	for (i = 0; i < NMEM; i++)
+		memOp[i] = MemOp();
+
+	//
+	// Memory
+	//
+	// initialise so that mem[addr] = addr
+	//
+	class Memory() extends Group(0, HLEFT | VTOP, BB,BB + MEMTXTH, 0,0, CPUW - 2*BB,MEMH) {
+	
+		num data[NMEM];
+		Rectangle memR[NMEM];
+
+		function update(num addr, num d) {
+			data[addr / NCPU | 0] = d;
+			memR[addr / NCPU | 0].setTxt("a%d:%d", addr, d);
+		}
+
+		for (num i = 0, a = cpuN*NMEM; i < NMEM; i++, a++) {
+			data[i] = a;
+ 			memR[i] = Rectangle(0, 0, blackPen, memBrush[cpuN], i*CPUW/NMEM,0, 0,0, MEMW,MEMH, blackPen, f0, "a%d:%d", a, a);
+			memR[i].setRounded(15, 15);
+			memOp[i] = MemOp();
+		}
+
+	}
+
+	//
+	// Bus
+	//
+	// vertical single or double headed bus arrow
+	//
+	class Bus(num _x, num _y0, num _y1, num double) {
+
+		num x = _x;
+		num y0 = _y0;
+		num y1 = _y1;
+
+		Line bgArrow = Line2(0, ABSOLUTE, double ? busBgPen2 : busBgPen1, x, y0, x, y1);
+		Line fgArrow = Line2(0, ABSOLUTE, 0, x, y0, x, y1);
+		fgArrow.setOpacity(0);
+		Rectangle label = Rectangle(0, ABSOLUTE, blackPen, whiteBrush, x,(y0+y1)/2, -BUSLABELW/2,-BUSLABELH/2, BUSLABELW,BUSLABELH, blackPen, f1);
+		label.setRounded(15, 15);
+		label.setOpacity(0);
+
+		//
+		// CPU.Bus.reset
+		//
+		function reset() {
+			bgArrow.setOpacity(1);
+			fgArrow.setOpacity(0);
+			label.setOpacity(0);
+		}
+
+		//
+		// CPU.Bus.moveUp
+		//
+		// animates up movement on vertical bus arrow
+		//
+		function moveUp(Pen pen, string s, num wait = 1) {
+			label.setTxt(s);
+			fgArrow.setPen(pen);
+			fgArrow.setPt(0, 0, 0);
+			fgArrow.setPt(1, 0, 0);
+			label.setOpacity(1, TICKS, 0);
+			fgArrow.setOpacity(1, TICKS/4, 0);
+			fgArrow.setPt(1, 0, y1 - y0, TICKS, 0);
+			bgArrow.setOpacity(0, TICKS, wait);
+		}
+
+		//
+		// CPU.Bus.moveDown
+		//
+		// animates down movement on vertical bus arrow
+		//
+		function moveDown(Pen pen, string s, num wait = 1) {
+			label.setTxt(s);
+			fgArrow.setPen(pen);
+			fgArrow.setPt(0, 0, y1 - y0);
+			fgArrow.setPt(1, 0, y1 - y0);
+			label.setOpacity(1, TICKS, 0);
+			fgArrow.setOpacity(1, TICKS/4, 0);
+			fgArrow.setPt(1, 0, 0, TICKS, 0);
+			bgArrow.setOpacity(0, TICKS, wait);
+		}
+
+	}
+
+	//
+	// Cache
+	//
+	// TODO: generate code to add initialised arrays to aobjs
+	//
+	class Cache() extends Group(0, HLEFT | VTOP, BB,BB+MEMTXTH+MEMH+BUSH, CTXTW,0, CPUW - 2*BB - CTXTW, NCACHE*CACHEH) {
+		
+		num state[NCACHE];			// = {I, I};				// state
+		num addr[NCACHE];			//= {0, 0};					// address
+		num data[NCACHE];			// = {0, 0};				// data
+
+		num xfrOwnerLock[NCACHE];	// = {0, 0};				// transfer owner lock
+		MsgQ xfrOwnerMsgQ[NCACHE];	// = {MsgQ(), MsgQ()};		// msgs queued on transfer owner lock
+
+		Rectangle stateR[NCACHE];
+		Rectangle addrR[NCACHE];
+		Rectangle dataR[NCACHE];
+		Rectangle xfrOwnerLockR[NCACHE];
+
+		//
+		// CPU.Cache.setState
+		//
+		function setState(num a, num s) {
+			num set = a & 1;
+			state[set] = s;
+			stateR[set].setTxt(stateTxt[s]);
+		}
+
+		//
+		// CPU.Cache.update
+		//
+		function update(num s, num a, num d) {
+			num set = a & 1;
+			state[set] = s;
+			addr[set] = a;
+			data[set] = d;
+			stateR[set].setTxt(stateTxt[s]);
+			addrR[set].setTxt("a%d", a);
+			dataR[set].setTxt("%d", d);
+		}
+
+		//
+		// CPU.Cache.hit
+		//
+		// even addresses mapped to set 0
+		// odd addresses mapped to set 1
+		//
+		// addresses match and state != I
+		//
+		num function hit(num a) {
+			num set = a & 1;
+			return (state[set] != I) && (addr[set] == a);
+		}
+
+		//
+		// CPU.Cache.writeHit
+		//
+		// even addresses mapped to set 0
+		// odd addresses mapped to set 1
+		//
+		// address match and state M or E
+		//
+		num function writeHit(num a) {
+			num set = a & 1;
+			debug("write hit a=%d set=%d", a, set);
+			return ((state[set] == M) || (state[set] == E)) && (addr[set] == a);
+		}
+
+		//
+		// initialisation
+		//
+		for (num i = 0; i < NCACHE; i++) {
+			//Rectangle(0, HLEFT, 0, 0, 0,i*CACHEH, 0,0, CTXTW,CACHEH, blackPen, f0, "set%d", i);
+			state[i] = I;
+			addr[i] = 0;
+			data[i] = 0;
+			xfrOwnerLock[i] = 0;
+			xfrOwnerMsgQ[i] = MsgQ();
+			stateR[i] = Rectangle(0, 0, blackPen, whiteBrush, CTXTW,i*CACHEH, 0,0, CSTATEW,CACHEH, blackPen, f0, "I");
+			addrR[i] = Rectangle(0, 0, blackPen, whiteBrush, CTXTW + CSTATEW,i*CACHEH, 0,0, CADDRW,CACHEH, blackPen, f0, "a0");
+			dataR[i] = Rectangle(0, 0, blackPen, whiteBrush, CTXTW + CSTATEW + CADDRW,i*CACHEH, 0,0, CDATAW,CACHEH, blackPen, f0, "0");
+			xfrOwnerLockR[i] = Rectangle(0, 0, thickRedPen, 0, CTXTW,i*CACHEH, 0,0, CSTATEW+CADDRW+CDATAW,CACHEH);
+			stateR[i].setRounded(15, 15);
+			addrR[i].setRounded(15, 15);
+			dataR[i].setRounded(15, 15);
+			xfrOwnerLockR[i].setRounded(15, 15);
+			xfrOwnerLockR[i].setOpacity(0);
+		}
+		//setPen(blackPen);
+
+	}
+
+	//
+	// CPU.RWButton
+	//
+	class RWButton(num _x, num _y, num _addr) extends Group(0, 0, _x,_y, 0,0, BW,BH) {
+
+		num a = _addr;
+		num rw = 0;
+
+		setBrush(memBrush[a2CPU(a)]);
+		setPen(blackPen);
+		setFont(f0);
+		setTxt("a%d", a);
+		setRounded(15, 15);
+	
+		Polygon readB = Polygon(0, HLEFT | VTOP | ABSOLUTE, redPen, memBrush[a2CPU(a)], 0,0, 0,0, BW,0, 0,BH);
+		readB.setPen(blackPen);
+		readB.setFont(f1);
+		readB.setTxt("R");
+		readB.setOpacity(0);
+		readB.setTxtOff(4, 1);
+
+		Polygon writeB = Polygon(0, HRIGHT | VBOTTOM | ABSOLUTE, redPen, memBrush[a2CPU(a)], 0,0, 0,BH, BW,0, BW,BH);
+		writeB.setPen(blackPen);
+		writeB.setFont(f1);
+		writeB.setTxt("W");
+		writeB.setOpacity(0);
+		writeB.setTxtOff(-4, 0);
+
+		//
+		// CPU.RWButton.select
+		//
+		function select(num _rw) {
+			//debug("select rw=%d", _rw);
+			rw = _rw;
+			if (selected == this) {
+ 				setPen(blackPen);
+				setTxt("a%d", a);
+ 				selected = 0;
+			} else {
+				if (selected) {
+					selected.setPen(blackPen);
+					selected.setTxt("a%d", a);
+				}
+				selected = this;
+ 				setPen(thickOrangePen);
+				setTxt("%s a%d", rw ? "W" : "R", a);
+				readB.setOpacity(0);
+				writeB.setOpacity(0);
+			}
+		}
+
+		//
+		// CPU.RWButton.eventEE
+		//
+		when ~> eventEE(num enter, num, num) {
+			if (buttonsLock == 0) {
+				readB.setOpacity(enter ? 1 : 0);
+				writeB.setOpacity(enter ? 1 : 0);
+				setBrush(enter ? 0 : memBrush[a2CPU(a)]);
+				if (enter == 0)
+					setTxt("a%d", a);
+			}
+		}
+
+		//
+		// CPU.RWButton.readB.eventEE
+		//
+		when readB ~> eventEE(num enter, num, num) {
+			readB.setBrush(enter ? memBrushS[a2CPU(a)] : memBrush[a2CPU(a)]);
+		}
+		
+		//
+		// CPU.RWButton.writeB.eventEE
+		//
+		when writeB ~> eventEE(num enter, num, num) {
+			writeB.setBrush(enter ? memBrushS[a2CPU(a)] : memBrush[a2CPU(a)]);
+		}
+
+		//
+		// CPU.RWButton.readB.eventMB
+		//
+		when readB ~> eventMB(num down, num flags, num, num) {
+			//debug("readB eventMB down=%d flags=%d op=%d", down, flags, op);
+			num r = 0;
+    		if (down && flags & MB_LEFT) {
+				r |= REMEMBER;
+				if (op != NOP)	// check for op in...
+					return r;	// progress
+				select(0);
+				if ((flags & MB_CTRL) == 0)
+					startTransactions();
+    		}
+			return r;
+		}
+	
+		//
+		// CPU.RWButton.writeB.eventMB
+		//		
+		when writeB ~> eventMB(num down, num flags, num, num) {
+    		num r = 0;
+			if (down && flags & MB_LEFT) {
+				r |= REMEMBER;
+				if (op != NOP)	// check for op in
+					return r;	// progress
+				select(1);
+				if ((flags & MB_CTRL) == 0)
+					startTransactions();
+    		}
+			return r;
+		}
+
+	}
+
+	//
+	// CPU.sendMsg
+	//
+	function sendMsg(num dstCPU, Msg msg) {
+		//debug("sendMsg src=%d dst=%d msg(src=%d dst=%d op=%d addr=%d)", cpuN, dstCPU, msg.srcCPU, msg.dstCPU, msg.op, msg.data[0]);
+		
+		//
+		// if sending to self just Q message
+		//
+		if (dstCPU == cpuN) {
+			msgQ.push(msg);							// Q message
+			return;
+		}
+		
+		//
+		// send msg using links
+		//
+		num nextCPU = route[cpuN][dstCPU];			// next step
+		Link link = 0;
+		num i;				
+		for (i = 0; i < NLINK; i++) {				// find link
+			if (txLink[i].dstCPU == nextCPU) {
+				link = txLink[i];
+				break;
+			}
+		}
+		while (link.lock == 1)						// wait for lock
+			wait(1);								// one message a time on link
+		link.lock = 1;								// set lock	
+
+		string s;
+		num b;
+		if (msg.op <= DACK) {
+			msg.setTxt("%s a%d", opTxt[msg.op], msg.data[0]);
+		} else if (msg.op <= XFR) {
+			msg.setTxt("%s a%d %d", opTxt[msg.op], msg.data[0], msg.data[1]);
+		} else if (msg.op == READ) {
+			s = sprintf("READ a%d", msg.data[0]);
+			if (msg.data[1]) {
+				s += " (";
+				b = 0;
+				for (i = 0; i < NCPU; i++) {
+					if (msg.data[1] & (1 << i)) {
+						s += sprintf("%s%d", b ? "," : "", i);
+						b = 1;
+					}
+				}
+				s += ")";
+			}
+			msg.setTxt(s);
+		} else if (msg.op == CNCL) {
+			s = sprintf("CNCL a%d %d", msg.data[0], msg.data[1]);
+			if (msg.data[2]) {
+				s += " (";
+				b = 0;
+				for (i = 0; i < NCPU; i++) {
+					if (msg.data[2] & (1 << i)) {
+						s += sprintf("%s%d", b ? "," : "", i);
+						b = 1;
+					}
+				}
+				s += ")";
+			}
+			msg.setTxt(s);
+		} else if (msg.op == CNFL) {
+			msg.setTxt("CNFL");
+		//} else if (msg.op == XFR) {
+		//	msg.setTxt("XFR a%d %d", msg.data[0], msg.data[1]);
+		}
+		msg.setOpacity(1);							// make msg visible
+		num w = msg.getTxtW() + 20;					// set...
+		msg.setPt(0, -w/2, -MSGH/2);				// msg...
+		msg.setPt(1, w/2, MSGH/2);					// width
+		msg.srcR.setPt(0, -w/2, -MSGH/2);
+		msg.srcR.setPt(1, 0, MSGH/2);
+		msg.srcR.setBrush(msg.srcCPU == BROADCAST ? whiteBrush : memBrush[msg.srcCPU]);
+		msg.dstR.setPt(0,0, -MSGH/2);
+		msg.dstR.setPt(1, w/2, MSGH/2);
+		msg.dstR.setBrush(msg.dstCPU == BROADCAST ? whiteBrush : memBrush[msg.dstCPU]);
+		msg.setPos(link.x0, link.y0);				// animate msg...
+		msg.setPos(link.x1, link.y1, TICKS, 1);		// along link
+		cpu[nextCPU].msgQ.push(msg);				// Q message on arrival
+		link.lock = 0;								// release lock
+	}
+
+	//
+	// CPU.broadcastMsg
+	//
+	// broadcasts GETS (PRL, RS) and GETX (PRIL, RFO) msgs
+	// uses reverse path forwarding
+	//
+	// sends msg to itself - makes handling of WB easier
+	//
+	function broadcastMsg(num op, num addr) {
+		//debug("broadcastMsg srcCPU=%d op=%d addr=%d", cpuN, op, addr);
+		opReplyCnt = 0;
+		//opState = 0;
+		sendMsg(cpuN, newMsg(cpuN, cpuN, op, addr));	// send to self first
+		for (num i = 0; i < NLINK; i++) {
+			if (txLink[i])
+				fork(sendMsg(txLink[i].dstCPU, newMsg(cpuN, BROADCAST, op, addr)));
+		}
+	}
+
+	//
+	// CPU.read
+	//
+	function read(num addr) {
+		debug("read: cpu=%d addr=%d", cpuN, addr);
+		cpuABus.reset();
+		cpuDBus.reset();
+		buttonsLock = 1;
+		rwButton[addr].setPen(thickGreenPen);
+		work++;
+		op = READOP;
+		opAddr = addr;
+		opFlags = 0;
+		start();
+		cpuABus.moveUp(busFgPenAddr, sprintf("a%d", addr));
+		if (cache.hit(addr)) {
+			readFinish(addr, cache.data[addr & 1], 1);		
+		} else {
+			//if (cache.state[addr & 1] == M) {
+			//	debug("write back");
+			//	opState = 2;
+			//	fork(sendMsg(addr % NCPU, newMsg2(cpuN, addr % NCPU, WB, cache.addr[addr & 1], cache.data[addr & 1])));
+			//} else {
+				broadcastMsg(GETS, addr);
+			//}
+		}
+	}
+
+	//
+	// CPU.readFinish
+	//
+	function readFinish(num addr, num data, num end) {
+		//debug("readFinish");
+		cpuDBus.moveDown(busFgPenData, sprintf("%d", data));
+		op = NOP;
+		selected = 0;
+		buttonsLock = 0;
+		rwButton[addr].setPen(blackPen);
+		if (end) {
+			//debug("readFinish calling workEnd");
+			workEnd();
+		}
+	}
+
+	//
+	// CPU.write
+	//
+	function write(num addr) {
+		debug("write: eventMB cpu=%d addr=%d", cpuN, addr);
+		cpuABus.reset();
+		cpuDBus.reset();
+		buttonsLock = 1;
+		work++;
+		op = WRITEOP;
+		opAddr = addr;
+		opFlags = 0;
+		start();
+		cpuABus.moveUp(busFgPenAddr, sprintf("a%d", addr), 0);
+		opWrval = wrval + addr;
+		wrval += WRINC;
+		cpuDBus.moveUp(busFgPenData, sprintf("%d", opWrval));
+		if (cache.writeHit(addr)) {
+			writeFinish(addr, 1);
+		} else {
+			broadcastMsg(GETX, addr);
+		}
+	}
+
+	//
+	// CPU.writeFinish
+	//
+	function writeFinish(num addr, num end) {
+		debug("writeFinish");
+		num set = opAddr & 1;
+		cache.update(M, addr, opWrval);	// write new value
+		op = NOP;
+		selected = 0;
+		buttonsLock = 0;
+		if (end)
+			workEnd();
+	}
+
+	//
+	// CPU.startRW
+	//
+	function startRW() {
+		if (selected && op == NOP) {
+			if (selected.rw == 0) {
+				read(selected.a);
+			} else {
+				write(selected.a);
+			}
+		}
+	}
+
+	//
+	// doRead
+	//
+	// used by self-test
+	//
+	function doRead(num addr, num waitf) {
+		read(addr);
+		if (waitf) {
+			while (work > 1)
+				wait(1);
+		}
+	}
+
+	//
+	// CPU.handleMsg
+	//
+	// forked as a "process"
+	//
+	function handleMsg() {
+		num addr, b, conflicts, set;
+		while (1) {
+			while (msgQ.head) {
+				Msg msg = msgQ.pop();
+				if (msg.dstCPU != BROADCAST && msg.dstCPU != cpuN) {															// forward...
+					fork(sendMsg(msg.dstCPU, msg));																				// msg
+					continue;
+				}
+				msg.setOpacity(0);																								// hide msg
+				if (msg.op == GETS || msg.op == GETX) { 																		// GETS or GETX broadcast msg
+					if (msg.srcCPU != cpuN) {																					// check if sending to self
+						for (num i = 0; i < NLINK; i++) {																		// broadcast copy of...
+							if (txLink[i] && route[txLink[i].dstCPU][msg.srcCPU] == cpuN)										// msg using...
+								fork(sendMsg(txLink[i].dstCPU, newMsg(msg.srcCPU, BROADCAST, msg.op, msg.data[0])));			// reverse path forwarding
+						}
+					}
+					set = msg.data[0] & 1;																						// set
+					if (cache.xfrOwnerLock[set]) { 																				// if cacheline locked...
+						cache.xfrOwnerMsgQ[set].push(msg);																		// Q msg...
+						continue;																								// and continue
+					}			
+					if (msg.op == GETS) {																						// GETS msg
+						//debug("GETS received from cpu=%d", cpuN);
+						if (op != NOP && opAddr == msg.data[0] && msg.srcCPU != cpuN) {											// check for a conflict
+							//debug("CONFLICT");
+							fork(sendMsg(msg.srcCPU, newMsg(cpuN, msg.srcCPU, CNFL, 0)));										// send CNFL (conflict)
+						} else if (cache.hit(msg.data[0]) == 0) {																// miss
+							set = msg.data[0] & 1;
+							if (cache.state[set] == M) {																		// check if need to write back
+								addr = cache.addr[set];
+								debug("write back (MISS) addr=%d set=%d", addr, set);
+								fork(sendMsg(a2CPU(addr), newMsg2(cpuN, a2CPU(addr), WB, addr, cache.data[set])));				// write back
+								cache.setState(addr, E);																		// E 
+								cache.xfrOwnerLock[set] = 1;																	// set xfrOwnerLock
+								cache.xfrOwnerLockR[set].setOpacity(1);															//
+								cache.xfrOwnerMsgQ[set].push(msg);																// Q msg
+								continue;																						// continue so msg not freed
+							} else {
+								fork(sendMsg(msg.srcCPU, newMsg(cpuN, msg.srcCPU, IACK, msg.data[0])));							// reply with IACK
+							}
+						} else {																								// hit
+							if (cache.state[set] == S) {																		// S
+								fork(sendMsg(msg.srcCPU, newMsg(cpuN, msg.srcCPU, SACK, msg.data[0])));							// reply with SACK
+							} else if (cache.state[set] == E || cache.state[set] == F) {										// E or F
+								fork(sendMsg(msg.srcCPU, newMsg2(cpuN, msg.srcCPU, DATAF, cache.addr[set], cache.data[set])));	// reply with DATAF
+								cache.setState(addr, S);																		// now shared
+								cache.xfrOwnerLock[set] = 1;																	// lock...
+								cache.xfrOwnerLockR[set].setOpacity(1);															// cache line until transfer complete
+							} else {																							// M
+								addr = cache.addr[set];																			// address to write back
+								//cache.update(S, addr, cache.data[set]);														// will now be shared
+								debug("write back (HIT) addr=%d set=%d", addr, set);
+								fork(sendMsg(a2CPU(addr), newMsg2(cpuN, a2CPU(addr), WB, addr, cache.data[set])));				// write back
+								cache.setState(addr, E);																		// E
+								cache.xfrOwnerLock[set] = 1;																	// set xfrOwnerLock
+								cache.xfrOwnerLockR[set].setOpacity(1);	
+								cache.xfrOwnerMsgQ[set].push(msg);																// Q msg
+								continue;																						// continue so msg not freed
+							}
+						}
+					} else {																									// GETX msg
+						if (cache.hit(msg.data[0]) == 0) {																		// hit
+							fork(sendMsg(msg.srcCPU, newMsg(cpuN, msg.srcCPU, IACK, msg.data[0])));								// send IACK
+						} else {																								// miss
+							set = msg.data[0] & 1;																				// set
+							if (cache.state[set] == S) {																		// S
+								debug("here S");
+								fork(sendMsg(msg.srcCPU, newMsg(cpuN, msg.srcCPU, IACK, msg.data[0])));							// send IACK
+							} else if (cache.state[set] == E) {																	// E
+								fork(sendMsg(msg.srcCPU, newMsg2(cpuN, msg.srcCPU, DATAE, cache.addr[set], cache.data[set])));	// send DATAE
+							} else if (cache.state[set] == M) {																	// M
+								fork(sendMsg(msg.srcCPU, newMsg2(cpuN, msg.srcCPU, DATAM, cache.addr[set], cache.data[set])));	// send DATAM
+							} else { 																							// F
+								fork(sendMsg(msg.srcCPU, newMsg2(cpuN, msg.srcCPU, DATAE, cache.addr[set], cache.data[set])));	// send DATAE
+							}
+							if (cache.state[set] != S) {
+								cache.xfrOwnerLock[set] = 1;																	// set xfrOwnerLock
+								cache.xfrOwnerLockR[set].setOpacity(1);	
+							}
+							cache.setState(msg.data[0], I);																		// invalidate
+
+						}
+					} // GETS | GETX
+				} else if ((msg.op == IACK) || (msg.op == SACK)) {
+					if (msg.op == SACK)
+						opFlags |= 1;																							// Shared
+					if  (++opReplyCnt == NCPU) {
+						addr = msg.data[0];
+						if (opFormerOwner == -1) {
+							fork(sendMsg(a2CPU(addr), newMsg2(cpuN, a2CPU(addr), READ, addr, opConflictMask)));					// send READ
+						} else {
+							work++;																								// works ends both ACK and DACK have meen received
+							fork(sendMsg(a2CPU(addr), newMsg3(cpuN, a2CPU(addr), CNCL, addr, opFormerOwner, opConflictMask)));	// send CNCL
+							opFormerOwner = -1;
+						}
+					}
+				} else if (msg.op == READ) {																					// NB: READ sent to home CPU
+					debug("[from CPU%d]:READ addr=%d conflicts=%d", msg.srcCPU, msg.data[0], msg.data[1]);
+					addr = msg.data[0];
+					conflicts = msg.data[1];
+					num opConflicts = memOp[addr % NMEM].conflicts;
+					memOp[addr % NMEM].conflicts |= conflicts;
+					if (opConflicts) {
+						num owner = memOp[addr % NMEM].owner;
+						fork(sendMsg(owner, newMsg2(cpuN, owner, XFR, addr, msg.srcCPU)));										// send XFR
+					} else {
+						fork(sendMsg(msg.srcCPU, newMsg2(cpuN, msg.srcCPU, DATAE, addr, mem.data[addr % NMEM])));				// send DATAE
+					}
+					memOp[addr % NMEM].owner = msg.srcCPU;
+				} else if (msg.op == CNCL) {																					// CNCL sent to home CPU
+					debug("[from CPU%d] CNCL addr=%d conflicts=%d", msg.srcCPU, msg.data[0], msg.data[2]);
+					addr = msg.data[0];
+					conflicts = msg.data[2];
+					if (conflicts) {
+						debug("conflicts=%d", conflicts);
+					} 
+					fork(sendMsg(msg.srcCPU, newMsg(cpuN, msg.srcCPU, ACK, addr)));												// send ACK
+					fork(sendMsg(msg.data[1], newMsg(cpuN, msg.data[1], DACK, addr)));											// send DACK
+				} else if (msg.op == WB) {
+					mem.update(msg.data[0], msg.data[1]); 																		// update memory
+					fork(sendMsg(msg.srcCPU, newMsg(cpuN, msg.srcCPU, ACK, msg.data[0])));										// reply with ACK
+				} else if (msg.op == DATAE) {
+					cache.update(opFlags & 1 ? F : E, msg.data[0], msg.data[1]);												// update cache
+					if (op == READOP) {
+						fork(readFinish(msg.data[0], msg.data[1], opReplyCnt == NCPU));											// don't decrement work
+					} else {
+						fork(writeFinish(msg.data[0], opReplyCnt == NCPU));
+					}
+					if (opReplyCnt < NCPU) {
+						//opState = 1;
+						opFormerOwner = msg.srcCPU;
+						if  (++opReplyCnt == NCPU) {
+							work++;																										// wait for ACK and DACK
+							fork(sendMsg(a2CPU(opAddr), newMsg3(cpuN, a2CPU(opAddr), CNCL, opAddr, opFormerOwner, opConflictMask)));	// send CNCL
+						}
+					}
+				} else if (msg.op == DATAM) {
+					cache.update(M, msg.data[0], msg.data[1]);
+					fork(writeFinish(msg.data[0], opReplyCnt == NCPU));
+					if (opReplyCnt < NCPU) {
+						opFormerOwner = msg.srcCPU;
+						if  (++opReplyCnt == NCPU) {
+							work++;																										// end when ACK and DACK both received
+							fork(sendMsg(a2CPU(opAddr), newMsg3(cpuN, a2CPU(opAddr), CNCL, opAddr, opFormerOwner, opConflictMask)));	// send CNCL
+						}
+					}
+				} else if (msg.op == DATAF) {
+					cache.update(F, msg.data[0], msg.data[1]);
+					fork(readFinish(msg.data[0], msg.data[1], opReplyCnt == NCPU));														// don't decrement work
+					if (opReplyCnt < NCPU) {
+						opFormerOwner = msg.srcCPU;
+						if  (++opReplyCnt == NCPU) {
+							work++;																										// end when ACK and DACK both received
+							fork(sendMsg(a2CPU(opAddr), newMsg3(cpuN, a2CPU(opAddr), CNCL, opAddr, opFormerOwner, opConflictMask)));	// send CNCL
+						}
+					}
+				} else if (msg.op == ACK) {
+					debug("ACK %d", msg.data[0]);
+					//if (opReplyCnt == 0) 
+					//	cache.setState(msg.data[0], F);																			// now F after WB
+					set = msg.data[0] & 1;																					
+					cache.xfrOwnerLock[set] = 0;																				// release lock
+					cache.xfrOwnerLockR[set].setOpacity(0);																		//
+					//cache.setState(msg.data[0], F);	
+					b = 0;
+					while (cache.xfrOwnerMsgQ[set].head) {																		// CHECK
+						debug("transfer msg.op=%d", cache.xfrOwnerMsgQ[set].head.op);
+						msgQ.push(cache.xfrOwnerMsgQ[set].pop());
+						b = 1;
+					}
+					if (b == 0) {
+						debug("ACK calling workEnd");
+						workEnd();
+					}
+					//if (opState == 2) {																						// ACK for write back
+					//	broadcastMsg(op == READOP ? GETS : GETX, opAddr);														// read or write after write back
+					//} else {
+					//	fork(sendMsg(opFormerOwner, newMsg(cpuN, opFormerOwner, DACK, 0)));										// reply with DACK
+					//}
+				} else if (msg.op == DACK) {
+					set = msg.data[0] & 1;																						// set																				
+					cache.xfrOwnerLock[set] = 0;																				// release...
+					cache.xfrOwnerLockR[set].setOpacity(0);																		// lock
+					debug("DACK calling workEnd");
+					workEnd();
+				} else if (msg.op == CNFL) {
+					//debug("handleMsg CNFL");
+					opConflictMask |= (1 << msg.srcCPU)
+					if  (++opReplyCnt == NCPU) {
+						//debug("TODO TODO");
+						work++;
+						fork(sendMsg(a2CPU(opAddr), newMsg2(cpuN, a2CPU(opAddr), opFormerOwner == - 1 ? READ : CNCL, opAddr, opConflictMask)));	// send CNCL or READ
+					}
+				} else if (msg.op == XFR) {
+					addr = msg.data[0];
+					num state = cache.state[addr & 1];
+					num data = cache.data[addr & 1];
+					if (state == E || state == F) {
+						fork(sendMsg(msg.data[1], newMsg2(cpuN, msg.data[1], DATAF, addr, data)));								// transfer data
+						cache.update(S, addr, data);
+					}
+
+				}
+				freeMsg(msg);
+			}
+			wait(1);
+		}
+	}
+
+	setPen(blackPen);
+	setBrush(gray192Brush);
+	setRounded(15, 15);
+
+	setFont(f0);
+	setTxtPen(redPen);	
+	setTxtOff(0, -60);
+	setTxt("CPU %d", cpuN);
+
+	Memory mem = Memory();
+	Bus memABus = Bus(CPUW/4, BB+MEMTXTH+MEMH + BUSH, BB+MEMTXTH+MEMH, 0);
+	Bus memDBus = Bus(3*CPUW/4, BB+MEMTXTH+MEMH + BUSH, BB+MEMTXTH+MEMH, 1);
+	Cache cache = Cache();
+	Bus cpuABus = Bus(CPUW/4, BB+MEMTXTH+MEMH+BUSH+NCACHE*CACHEH + BUSH, BB+MEMTXTH+MEMH+BUSH+NCACHE*CACHEH, 0);
+	Bus cpuDBus = Bus(3*CPUW/4, BB+MEMTXTH+MEMH+BUSH+NCACHE*CACHEH + BUSH, BB+MEMTXTH+MEMH+BUSH+NCACHE*CACHEH, 1);
+
+	Rectangle linkR[4] = {
+		Rectangle(0, 0, 0, 0, CPUW/2, -20, -LINKLABELW/2,-LINKLABELH/2, LINKLABELW,LINKLABELH, blackPen, linkFont, "L0"),
+		Rectangle(0, 0, 0, 0, CPUW + 40,CPUH/2, -LINKLABELW/2,-LINKLABELH/2, LINKLABELW,LINKLABELH,  blackPen, linkFont, "L1"),
+		Rectangle(0, 0, 0, 0, CPUW/2,CPUH + 20, -LINKLABELW/2,-LINKLABELH/2, LINKLABELW,LINKLABELH, blackPen, linkFont, "L2"),
+		Rectangle(0, 0, 0, 0, -40,CPUH/2, -LINKLABELW/2,-LINKLABELH/2, LINKLABELW,LINKLABELH, blackPen, linkFont, "L3"),
+	}
+	for (i = 0; i < 4; i++)
+		linkR[i].setOpacity(0);
+	
+	Txt(0, HLEFT, BB, BB + MEMTXTH/2, gray96Pen, f2, "memory")
+	Txt(0, HLEFT, BB, BB + MEMTXTH + MEMH + BUSH - 20, gray96Pen, f2, "cache")
+	Txt(0, HLEFT, BB, BB + MEMTXTH + MEMH + BUSH + NCACHE*CACHEH + BUSH - 20, gray96Pen, f2, "CPU buttons")
+
+	// buttons
+	for (i = 0, yy = BB + MEMTXTH + MEMH + BUSH + NCACHE*CACHEH + BUSH; i < NCPU; i++, yy += BH + BB) {
+		for (j = 0, xx = BB; j < NMEM; j++, xx += BW + BB) {
+			rwButton[i*NMEM+j] = RWButton(xx, yy, i*NMEM + j);
+		}
+	}
+	
+	fork(handleMsg());	// fork handleMsg
+
+} // CPU
+
+//
+// Link
+//
+// uni-directional link between cpuA and cpuB
+//
+class Link(num cpuA, num linkA, num cpuB, num linkB) {
+	num dstCPU = cpuB;
+	num x0 = cpu[cpuA].x;
+	num y0 = cpu[cpuA].y;
+	num x1 = cpu[cpuB].x ;
+	num y1 = cpu[cpuB].y;
+	num dy = (y0 == y1) ? (cpuA < cpuB ? -LINKOFF :  LINKOFF) : 0;	// horizontal
+	num dx = (x0 == x1) ? (cpuA < cpuB ?  LINKOFF : -LINKOFF) : 0;	// vertical
+	if (linkA == 0) {
+		x0 += CPUW/2 + dx;
+	} else if (linkA == 1) {
+		x0 += CPUW + dx;
+		y0 += CPUH/2 + dy;
+ 	} else if (linkA == 2) {
+		x0 += CPUW/2 + dx;
+		y0 += CPUH + dy;
+	} else {
+		y0 += CPUH/2 + dy;
+	}
+	if (linkB == 0) {
+		x1 += CPUW/2 + dx;
+	} else if (linkB == 1) {
+		x1 += CPUW + dx;
+		y1 += CPUH/2 + dy;
+ 	} else if (linkB == 2) {
+		x1 += CPUW/2 + dx;
+		y1 += CPUH + dy;
+	} else {
+		y1 += CPUH/2 + dy;
+	}
+	Line tx = Line2(0, ABSOLUTE, linkPen, x0, y0, x1, y1);
+	num lock = 0;	// one message at a time
+}
+
+//
+// Msg
+//
+// size of Rectangle set in sendMsg
+//
+class Msg() extends Group(layer10, 0, 0,0, 0,0, 0,0) {
+	
+	num srcCPU;
+	num dstCPU;
+	num op;
+	num data[2];
+	Msg next;
+
+	Rectangle srcR = Rectangle(0, 0, 0, 0, 0,0, 0,0, 0,0, blackPen, msgFont);
+	Rectangle dstR = Rectangle(0, 0, 0, 0, 0,0, 0,0, 0,0, blackPen, msgFont);
+	
+	setPen(blackPen);
+	setFont(msgFont);
+	setRounded(15, 15);
+
+}
+
+//
+// MsgQ
+//
+class MsgQ () {
+
+	Msg head = 0;
+	Msg tail = 0;
+	
+	//
+	// push
+	//
+	function push(Msg msg) {
+		msg.next = 0;	// needed
+		if (head) {
+			tail.next = msg;
+			tail = msg;
+		} else {
+			head = tail = msg;
+		}
+	}
+	
+	//
+	// pop
+	//
+	Msg function pop() {
+		Msg r = head;
+		head = head.next;
+		if (head == 0)
+			tail = 0;
+		r.next = 0;	// is this needed
+		return r;
+	}
+
+}
+
+//
+// newMsg
+//
+Msg function newMsg(num srcCPU, num dstCPU, num op, num d0) {
+	Msg msg;
+	if (freeMsgQ) {
+		msg = freeMsgQ;
+		freeMsgQ = freeMsgQ.next;
+	} else {
+		msg = Msg();
+	}
+	msg.srcCPU = srcCPU;
+	msg.dstCPU = dstCPU;
+	msg.op = op;
+	msg.data[0] = d0;
+	msg.next = 0;
+	return msg;
+}
+
+//
+// newMsg2
+//
+Msg function newMsg2(num srcCPU, num dstCPU, num op, num d0, num d1) {
+	Msg msg = newMsg(srcCPU, dstCPU, op, d0);
+	msg.data[1] = d1;
+	return msg;
+}
+
+//
+// newMsg3
+//
+Msg function newMsg3(num srcCPU, num dstCPU, num op, num d0, num d1, num d2) {
+	Msg msg = newMsg2(srcCPU, dstCPU, op, d0, d1);
+	msg.data[2] = d2;
+	return msg;
+}
+
+//
+// freeMsg
+//
+function freeMsg(Msg msg) {
+	msg.next = freeMsgQ;
+	freeMsgQ = msg;
+}
+
+//
+// connect
+//
+// although links are bidirectional, it's easier...
+// to have separate links in each direction
+//
+function connect(num cpuA, num linkA, num cpuB, num linkB) {
+	cpu[cpuA].txLink[linkA] = cpu[cpuB].rxLink[linkB] = Link(cpuA, linkA, cpuB, linkB);
+	cpu[cpuA].rxLink[linkA] = cpu[cpuB].txLink[linkB] = Link(cpuB, linkB, cpuA, linkA);
+	cpu[cpuA].linkR[linkA].setOpacity(1);
+	cpu[cpuB].linkR[linkB].setOpacity(1);
+}
+
+//
+// create CPUs
+//
+CPU cpu[NCPU];
+
+xx = (W - 3*CPUW - 2*BORDER)/2;	// spacing between CPUs
+
+cpu[0] = CPU(BORDER + CPUW + xx, 100, 0);
+cpu[1] = CPU(BORDER + 2*CPUW + 2*xx, 100, 1);
+cpu[2] = CPU(BORDER, H - 100 - CPUH, 2);
+cpu[3] = CPU(BORDER + CPUW + xx, H - 100 - CPUH, 3);
+cpu[4] = CPU(BORDER + 2*CPUW + 2*xx, H - 100 - CPUH, 4);
+
+//
+// connect CPus using the links
+// links number 0 to 3 clockwise starting at 12 o'clock
+//
+connect(0, 1, 1, 3);	// cpu0 link1 <=> cpu1 link3
+connect(0, 2, 3, 0);	// cpu0 link2 <=> cpu3 link0
+connect(1, 2, 4, 0);	// cpu1 link2 <=> cpu4 link0
+connect(3, 1, 4, 3);	// cpu3 link1 <=> cpu4 link3
+connect(2, 1, 3, 3);	// cpu2 link1 <=> cpu3 link3
+
+//
+// global routing table
+// if route[0][3] = 3 then transmit msg from cpu0 to cpu3
+// if route[0][2] = 3 then transmit (next step) msg from cpu0 to cpu3
+//
+num route[NCPU][NCPU];
+
+route[0][0] = -1;
+route[0][1] = 1;
+route[0][2] = 3;
+route[0][3] = 3;
+route[0][4] = 1;
+
+route[1][0] = 0;
+route[1][1] = -1;
+route[1][2] = 4;
+route[1][3] = 0;
+route[1][4] = 4;
+
+route[2][0] = 3;
+route[2][1] = 3;
+route[2][2] = -1;
+route[2][3] = 3;
+route[2][4] = 3;
+
+route[3][0] = 0;
+route[3][1] = 4;
+route[3][2] = 2;
+route[3][3] = -1;
+route[3][4] = 4;
+
+route[4][0] = 1;
+route[4][1] = 1;
+route[4][2] = 3;
+route[4][3] = 3;
+route[4][4] = -1;
+
+//
+// startTransactions
+//
+function startTransactions() {
+	start();
+ 	for (num i = 0; i < NCPU; i++)
+		fork(cpu[i].startRW());
+}
+
+//
+// resetButton
+//
+SimpleButton resetButton = SimpleButton(BORDER, H - 75, 160, 60, gray224Brush, gray192Brush, blackPen, blackPen, blackPen, f0, f1, "Reset");		
+
+//
+// resetButton eventMB
+//
+when resetButton ~> eventMB(num down, num flags, num, num) {
+	if (down && (flags & MB_LEFT))
+		reset();
+	return 0;
+}
+
+//
+// self test
+//
+if (getArgAsNum("selfTest", 1)) {
+
+	debug("selfTest");
+
+	// see MESIFHelp.htm
+
+// 	work++;
+// 	cpu[2].doRead(2, 1);			// 1
+// 	cpu[2].doRead(2, 1);			// 2
+// 	cpu[3].doRead(2, 1);			// 3
+// 	cpu[0].doRead(2, 1);			// 4
+// 	cpu[0].doRead(10, 1);			// 5
+// 	work--;
+// 	cpu[4].doRead(2, 1);			// 6
+
+// 	cpu[2].write(2);				// 7
+// 	while (work) wait(1);
+// 	cpu[2].write(2);				// 8
+// 	while (work) wait(1);
+// 	cpu[3].write(2);				// 9
+// 	while (work) wait(1);
+
+	fork(cpu[2].read(2));			// 1
+	fork(cpu[3].read(2));			// 2
+	cpu[4].read(2);					// 3
+	
+	debug("FINISHED tick=%d", getTick());
+
+}
+// eof

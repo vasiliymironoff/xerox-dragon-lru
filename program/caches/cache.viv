@@ -1,0 +1,745 @@
+//
+// cache.viv
+//
+// Vivio cache animation (see CS3021/CS3421 tutorial)
+//
+// Copyright (C) 1997 - 2022 jones@scss.tcd.ie
+//
+// This program is free software; you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software Foundation;
+// either version 2 of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+// See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software Foundation Inc.,
+// 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+//
+
+//
+// 17/12/96 first version
+// 02/01/97 added buttons + general tidy-up
+// 03/05/97 used SimpleButton (removed Button builtin type)
+// 07/07/97 button feedback + cosmetic improvements
+// 21/01/98 used track & flash functions + cosmetic visual improvements
+// 30/07/02 Vivio 2.0
+// 18/01/06 Vivio 4.0
+// 10/02/06 cosmetic improvements
+// 20/02/06 real x,y event parameters
+// 30/08/06 renamed getIntArg() to getArgAsInt and setIntArg() to setArgFromInt()
+// 25/10/06 updated for updated startStopEvent behaviour
+// 07/11/06 improved position of checkpoints
+// 11/01/07 replaced TCD crest with Vivio logo
+// 14/01/07 used ImageButton for logo
+// 13/03/07 return EV_FORGET in event handlers which call getURL
+// 19/05/07 logo now uses a hand cursor
+// 30/01/10 Vivio 6.0
+// 08/07/10 pen now used to draw text
+// 18/08/10 rgba
+// 16/02/15 syntax update (constructors + declarations)
+// 30/03/15 16:10 (1024 x 640) window
+// 06/04/15 can now change L (16 and 32)
+// 25/09/16 VivioJS
+// 09/05/21 preload fonts
+//
+
+#include "standard.vin"
+#include "simpleButton.vin"
+
+//
+// demos require font directory copied to demos directory (from www)
+//
+#preloadfont "Open Sans", "../fonts/open-sans-v18-latin-regular.woff", "{weight:400}"
+#preloadfont "Open Sans", "../fonts/open-sans-v18-latin-italic.woff", "{style:'italic', weight:400}"
+
+const num W				= 1024;			// 16:10
+const num H				= 640;
+
+const num NADDR			= 32;			// number of addresses
+
+const num BORDER		= 10;			// border
+
+const num TITLEX 		= BORDER;		// title
+const num TITLEY		= BORDER;
+const num TITLEH 		= 40;
+
+const num BH			= 20;			// buttons
+const num BW			= 80;
+const num BGAP			= 5;
+const num BGW			= BW + BGAP;
+
+const num MEMW			= 160;			// memory
+const num MEMX			= (W-MEMW)/2;
+const num MEMY			= 40;
+const num MEMH			= 70;
+
+const num CPUW			= MEMW;			// cpu
+const num CPUX			= (W-CPUW)/2;
+const num CPUH			= MEMH;
+const num CPUY			= H-60-CPUH;
+
+const num BUSW			= 12;			// width of pen used to draw address bus
+const num BUSL			= 60;			// bus length
+
+const num CLINEH		= 20;			// cache line
+const num CLINEGAP		= 2;
+
+const num ADDRW 		= 64;      		// addresses
+const num ADDRH 		= 15;
+const num ADDRY			= 80;
+const num ADDRGAPY		= 2;
+const num ADDRX			= BORDER + ADDRW/2;
+
+const num HITCNTX		= 100;			// hit cnt
+const num HITCNTY		= ADDRY;
+
+const num INFOX			= 100;			// info
+const num INFOY			= H - 35;
+
+const num BUTTONY		= BORDER;		// buttons
+
+const num TICKS 		= 20;
+const num NFLASH		= 2;			// flash count
+
+
+// variables
+num i, j;
+num indx;
+num hits = 0;
+num state;						
+num addr[NADDR];						// addresses
+
+// log2 helper
+num function log2(num n) {
+	num i;
+    for (i = -1; n > 0; i++)
+		n >>= 1;	
+    return i;
+}
+
+// args
+num L = getArgAsNum("L", 16);
+num K = getArgAsNum("K", 2);
+num N = getArgAsNum("N", 4);
+num A = getArgAsNum("A", 0);
+num T = getArgAsNum("T", getTPS());
+
+// setVirtualWindow
+setVirtualWindow(0, 0, W, H, 1);
+
+// set ticks per second
+setTPS(T);
+
+// layer for address tracker
+Layer layer100 = Layer(100);
+
+// calculate values for cache organisation
+num lmask = L - 1;
+num setshift = log2(L);
+num setmask = N - 1;
+num tagshift = log2(N) + log2(L);
+
+// pens
+Pen blueDotPen = SolidPen(6, 0, BLUE);
+Pen bluePen2 = SolidPen(0, 2, BLUE);
+Pen darkGreenPen3 = SolidPen(0, 3, rgba(0, 0.6, 0));
+Pen gray64Pen2 = SolidPen(0, 2, GRAY64, ROUND_END);
+Pen redPen2 = SolidPen(0, 2, RED);
+
+// brushes
+Brush titleBrush = SolidBrush(rgba(0, 0.56, 0.16));	// Irish Green {joj 08/06/21}
+
+Brush ageBrush[K];
+for (i = 0; i < K; i++) {
+    num dac = 0.5 + 0.5 * i / K;
+    ageBrush[i] = SolidBrush(rgba(dac, dac, dac));
+}
+
+// fonts
+Font bf0 = Font("Open Sans", 14);
+Font bf1 = Font("Open Sans", 13);
+Font font = Font("Open Sans", 12);
+Font infoFont = Font("Open Sans", 22);
+Font labelFont = Font("Open Sans", 18, 0);
+Font titleFont = Font("Open Sans", 24, 0);
+Font lastModifiedFont = Font("Open Sans", 10, ITALIC);
+
+// set background brush
+setBgBrush(gray224Brush);
+
+// title
+Rectangle title = Rectangle2(0, 0, 0, titleBrush, TITLEX, TITLEY, W/2, TITLEH, whitePen, titleFont, "Cache Animation for L=%d K=%d N=%d", L, K, N);
+title.setRounded(5, 5);
+title.setPt(1, title.getTxtW() + 16, TITLEH);
+
+// info
+Rectangle info = Txt(0, HLEFT, INFOX, INFOY, blackPen, infoFont, "click to start...");
+
+// lastModified
+Txt(0, HRIGHT | VBOTTOM, W - BORDER, H - BORDER, gray192Pen, lastModifiedFont, timeToString(getLastModifiedMS(), "last modified %e-%b-%y"));
+
+//
+// BusArrow
+//
+// vertical double headed bus arrow
+//
+class BusArrow(num x, num y, num w, num _l, num bgColour, num fgColour) {
+
+	num l = _l;
+	Pen bgPen = SolidPen(0, w, bgColour, ARROW60_START | ARROW60_END);
+	Line bgArrow = Line(0, 0, bgPen, x, y, 0, 0, 0, l);	// RELATIVE by default
+	Pen fgPen = SolidPen(0, w, fgColour, ARROW60_END);
+	Line fgArrow = Line(0, 0, fgPen, x, y, 0, 0, 0, 0);	// RELATIVE by default
+	fgArrow.setOpacity(0);
+
+	function reset() {
+		bgArrow.setOpacity(1);
+		fgArrow.setOpacity(0);
+	}
+
+	//
+	// animates up movement on vertical bus arrow
+	// may be called with ticks = 0
+	//
+	function moveUp(num ticks, num wait) {
+		fgArrow.setPt(0, 0, l);
+		fgArrow.setPt(1, 0, l);
+		fgArrow.setPt(1, 0, 0, ticks, 0);	// {joj 03/09/20}
+		fgArrow.setOpacity(1, ticks/4, 0);	// {joj 02/09/20}
+		bgArrow.setOpacity(0, ticks, wait);	// {joj 02/09/20}
+	}
+
+	//
+	// animates down movement on vertical bus arrow
+	// may be called with ticks = 0
+	//
+	function moveDown(num ticks, num wait) {
+ 		fgArrow.setPt(0, 0, 0);
+ 		fgArrow.setPt(1, 0, 0);
+ 		fgArrow.setPt(1, 0, l, ticks, 0);	// {joj 03/09/20}
+ 		fgArrow.setOpacity(1, ticks/4, 0);	// {joj 02/09/20}
+ 		bgArrow.setOpacity(0, ticks, wait);	// {joj 02/09/20}
+	}
+
+}
+
+// buttons
+SimpleButton startStopButton = SimpleButton(W-3*BW-2*BGAP-BORDER, BUTTONY, BW, BH, whiteBrush, gray224Brush, gray64Pen2, gray128Pen, blackPen, bf0, bf1, "start");
+SimpleButton resetButton = SimpleButton(W-2*BW-BGAP-BORDER, BUTTONY, BW, BH, whiteBrush, gray224Brush, gray64Pen2, gray128Pen, blackPen, bf0, bf1, "reset");
+SimpleButton speedButton = SimpleButton(W-BW-BORDER, BUTTONY, BW, BH, whiteBrush, gray224Brush, gray64Pen2, gray128Pen, blackPen, bf0, bf1, "");
+speedButton.setTxt("%d ticks/s", T);
+SimpleButton lButton = SimpleButton(W-3*BW-2*BGAP-BORDER, BUTTONY+BH+BGAP, BW, BH, whiteBrush, gray224Brush, gray64Pen2, gray128Pen, blackPen, bf0, bf1, "L");
+lButton.setTxt("L = %d", L);
+SimpleButton kButton = SimpleButton(W-2*BW-BGAP-BORDER, BUTTONY+BH+BGAP, BW, BH, whiteBrush, gray224Brush, gray64Pen2, gray128Pen, blackPen, bf0, bf1, "K");
+kButton.setTxt("K = %d", K);
+SimpleButton nButton = SimpleButton(W-BW-BORDER, BUTTONY+BH+BGAP, BW, BH, whiteBrush, gray224Brush, gray64Pen2, gray128Pen, blackPen, bf0, bf1, "N");
+nButton.setTxt("N = %d", N);
+SimpleButton aButton = SimpleButton(W-3*BW-2*BGAP-BORDER, BUTTONY+2*BH+2*BGAP, 3*BGW-(BGW-BW), BH, whiteBrush, gray224Brush, gray64Pen2, gray128Pen, blackPen, bf0, bf1, "A");
+SimpleButton helpButton = SimpleButton(W-3*BW-2*BGAP-BORDER, BUTTONY+3*BH+3*BGAP, BGW+(BW-BGAP)/2, BH, whiteBrush, gray224Brush, gray64Pen2, gray128Pen, blackPen, bf0, bf1, "help");
+SimpleButton vivioHelp = SimpleButton(W-3*BW/2-BGAP/2-BORDER, BUTTONY+3*BH+3*BGAP, BGW+(BW-BGAP)/2, BH, whiteBrush, gray224Brush, gray64Pen2, gray128Pen, blackPen, bf0, bf1, "VivioJS help");
+
+// hit and miss counts
+Rectangle hitCntR = Rectangle2(0, 0, blackPen, greenBrush, HITCNTX, HITCNTY, 80, 24, blackPen, font, "hits:%3d", 0);
+hitCntR.setRounded(2, 2);
+Rectangle missCntR = Rectangle2(0, 0, blackPen, redBrush, HITCNTX, HITCNTY+2*(ADDRH+ADDRGAPY), 80, 24, blackPen, font, "misses:%3d", 0);
+missCntR.setRounded(2, 2);
+
+// initial addresses
+if (A == 0) {
+
+    addr[ 0] = 0x0000; addr[ 1] = 0x0004; addr[ 2] = 0x000c; addr[ 3] = 0x2200;
+    addr[ 4] = 0x00d0; addr[ 5] = 0x00e0; addr[ 6] = 0x1130; addr[ 7] = 0x0028;
+    addr[ 8] = 0x113c; addr[ 9] = 0x2204; addr[10] = 0x0010; addr[11] = 0x0020;
+    addr[12] = 0x0004; addr[13] = 0x0040; addr[14] = 0x2208; addr[15] = 0x0008;
+
+	//addr[ 0] = 0x0000; addr[ 1] = 0x0040; addr[ 2] = 0x0008; addr[ 3] = 0x0040;
+	//addr[ 4] = 0x00c0; addr[ 5] = 0x0044; addr[ 6] = 0x0004; addr[ 7] = 0x0024;
+	//addr[ 8] = 0x0000; addr[ 9] = 0x00a0; addr[10] = 0x0000; addr[11] = 0x0040;
+	//addr[12] = 0x0000; addr[13] = 0x0020; addr[14] = 0x0080; addr[15] = 0x00a4;
+
+	//addr[ 0] = 0x0000; addr[ 1] = 0x0004; addr[ 2] = 0x0008; addr[ 3] = 0x000c;
+	//addr[ 4] = 0x0010; addr[ 5] = 0x0020; addr[ 6] = 0x0030; addr[ 7] = 0x0040;
+	//addr[ 8] = 0x0080; addr[ 9] = 0x0060; addr[10] = 0x0000; addr[11] = 0x0040;
+	//addr[12] = 0x0000; addr[13] = 0x0020; addr[14] = 0x0014; addr[15] = 0x0030;
+
+	//addr[ 0] = 0x0000; addr[ 1] = 0x0010; addr[ 2] = 0x0020; addr[ 3] = 0x0030;
+	//addr[ 4] = 0x003c; addr[ 5] = 0x0050; addr[ 6] = 0x0010; addr[ 7] = 0x000c;
+	//addr[ 8] = 0x0010; addr[ 9] = 0x0050; addr[10] = 0x002c; addr[11] = 0x0010;
+	//addr[12] = 0x0050; addr[13] = 0x0020; addr[14] = 0x0010; addr[15] = 0x0000;
+
+    addr[16] = 0x00a0; addr[17] = 0x0004; addr[18] = 0x1104; addr[19] = 0x0028;
+    addr[20] = 0x000c; addr[21] = 0x0084; addr[22] = 0x000c; addr[23] = 0x3390;
+    addr[24] = 0x00b0; addr[25] = 0x1100; addr[26] = 0x0028; addr[27] = 0x0064;
+    addr[28] = 0x0070; addr[29] = 0x00d0; addr[30] = 0x0008; addr[31] = 0x3394;
+	aButton.setTxt("tutorial addresses");
+
+} else if (A == 1) {
+
+    for (i = 0; i < NADDR; i++)
+        addr[i] = (i % 5) << 4;
+
+	aButton.setTxt("0000 0010 0020 0030 0040 0000...");
+
+} else {
+
+    for (i = 0; i < NADDR; i++)
+        addr[i] = (random() * 65536) & 0xfffc;
+	aButton.setTxt("random addresses");
+
+}
+
+// addresses
+Rectangle addresses = Txt(0, 0, ADDRX, ADDRY-16, redPen, font, "addresses");
+Rectangle addrR[NADDR];
+for (i = 0; i < NADDR; i++) {
+    addrR[i] = Rectangle(0, VBOTTOM, blackPen, whiteBrush, ADDRX, ADDRY+i*(ADDRH+ADDRGAPY), -ADDRW/2, -ADDRH/2, ADDRW, ADDRH, blackPen, font, "%04x", addr[i]);
+	addrR[i].setRounded(2, 2);
+}
+
+//
+// Memory
+//
+class Memory(num l) {
+	Rectangle memory = Rectangle2(0, 0, blackPen, 0, MEMX, MEMY, MEMW, MEMH, redPen, labelFont, "memory");
+	memory.setRounded(4, 4);
+	BusArrow abus = BusArrow(W/2-MEMW/4, MEMY+MEMH, BUSW, l, GRAY96, RED);
+	BusArrow dbus = BusArrow(W/2+MEMW/4, MEMY+MEMH, BUSW, l, GRAY96, BLUE);
+}
+
+//
+// address tracker
+//
+Rectangle aTrackerR = Rectangle(layer100, 0, redPen2, whiteBrush, 0, 0, -ADDRW/2, -ADDRH/2, ADDRW, ADDRH, blackPen, font);
+aTrackerR.setOpacity(0);
+
+//
+// Cache
+//
+class Cache() {
+
+	num w = (K < 8) ? 64 : 40;
+	num h = CLINEH;
+	num gap = CLINEGAP;
+	num cacheH = h+(N+3)*(h+gap)-gap;
+	num cacheW = w+K*(w+3)+gap+K*(w+3)+gap;
+	num cacheX = (W-cacheW)/2;
+	num cacheY = MEMY+MEMH+(CPUY-(MEMY+MEMH)-cacheH)/2;
+
+	Rectangle tagR[N][K];
+	Rectangle dataR[N][K];
+	Rectangle tagFlashR[N];
+
+	num tagsd[N][K];
+	num count[N][K];
+	num order[N][K];
+
+	Rectangle cborder = Rectangle2(0, 0, blackPen, 0, cacheX, cacheY, cacheW, cacheH);
+	cborder.setRounded(4, 4);
+
+	Txt(0, HLEFT, cacheX, cacheY-20, redPen, labelFont, "cache");
+	Txt(0, HLEFT | VBOTTOM, cacheX+w, cacheY + 16, redPen, font, "tags");
+	Txt(0, HLEFT | VBOTTOM, cacheX+w+K*(w+3)+gap, cacheY + 16, bluePen, font, "data");
+
+	Rectangle dataOut = Rectangle2(0, 0, 0, blueBrush, 0, 0, w*4/L, h);
+	dataOut.setRounded(4, 4);
+	dataOut.setOpacity(0);
+
+	for (num n = 0; n < N; n++) {
+
+    	Rectangle2(0, 0, 0, 0, cacheX, cacheY + (n+1)*(h+gap), w, h, 0, font, "set %d", n);
+
+    	for (num k = 0; k < K; k++) {
+
+			tagR[n][k] = Rectangle2(0, 0, redPen, ageBrush[k], cacheX+w+k*(w+gap), cacheY+(n+1)*(h+gap), w, h, blackPen, font, "xxx");
+ 			tagR[n][k].setRounded(4, 4);
+ 			tagsd[n][k] = 0xffff;
+
+ 			count[n][k] = -1;
+ 			order[n][k] = k;
+
+ 			num doffsetx = cacheX+w+K*(w+3)+gap+k*(w+3);
+ 			dataR[n][k] = Rectangle2(0, 0, bluePen, 0, doffsetx, cacheY+(n+1)*(h+gap), w, h, blackPen, font);
+ 			dataR[n][k].setRounded(4, 4);
+
+			for (num l = 1; l < L/4; l++)
+				Line2(0, 0, blueDotPen, doffsetx+l*w*4/L, cacheY+(n+1)*(h+gap), 0, h);
+
+		}
+		
+		tagFlashR[n] = Rectangle2(0, 0, 0, 0, cacheX+w, cacheY+(n+1)*(h+gap), K*(w+gap)-gap, h);
+ 		tagFlashR[n].setRounded(2, 2);
+
+	}
+
+	num asplitX = (W-16*8)/2;
+	num asplitY = cacheY + h+(N+1)*(h+gap)+h/2-gap;
+
+	num tagW = (16-tagshift)*8;
+	num setW = log2(N)*8;
+	num offW = log2(L)*8;
+
+	Rectangle tagT = Rectangle2(0, 0, 0, 0, asplitX, asplitY-24, tagW, h, blackPen, font, "tag");
+	Rectangle setT = Rectangle2(0, 0, 0, 0, asplitX+tagW, asplitY-24, setW, h, blackPen, font, "set");
+	Rectangle offsetT = Rectangle2(0, 0, 0, 0, asplitX+tagW+setW, asplitY-24, offW, h, blackPen, font, "off");
+
+	Rectangle setSplitR = Rectangle2(0, 0, redPen, whiteBrush, asplitX+tagW, asplitY, setW, h,blackPen, font);
+	setSplitR.setRounded(4, 4);
+	Rectangle offSplitR = Rectangle2(0, 0, redPen, whiteBrush, asplitX+tagW+setW, asplitY, offW, h, blackPen, font);
+	offSplitR.setRounded(4, 4);
+	Rectangle tagSplitR = Rectangle2(0, 0, redPen, whiteBrush, asplitX, asplitY, tagW, h, blackPen, font);
+	tagSplitR.setRounded(4, 4);
+
+	Rectangle aTrackerR = Rectangle2(layer100, 0, redPen2, whiteBrush, asplitX, asplitY, tagW+setW+offW, h, blackPen, font);
+	aTrackerR.setRounded(4, 4);
+	aTrackerR.setOpacity(0);
+
+	if (setW == 0) {
+    	setT.setOpacity(0);
+    	setSplitR.setOpacity(0);
+	}
+
+	//
+	// resetTagsAndData
+	//
+	function resetTagsAndData() {
+		for (num i = 0; i < N; i++) {
+			for (num j = 0; j < K; j++) {
+				tagR[i][j].setPen(redPen);
+				dataR[i][j].setPen(bluePen);
+			}
+		}
+ 	}
+
+	//
+	// setSplitTxt
+	//
+	function setSplitTxt(num defaultx, num tag = 0, num set = 0, num off = 0) {
+		if (defaultx) {
+			tagSplitR.setTxt("");
+			setSplitR.setTxt("");
+			offSplitR.setTxt("");
+		} else {
+			tagSplitR.setTxt("%03x", tag);
+			setSplitR.setTxt("%01x", set);
+			offSplitR.setTxt("%01x", off);
+		}
+	}
+
+	//
+	// flashTags
+	//
+	function flashTags(num set) {
+		tagFlashR[set].toggleBrushAndPens(tagFlashR[set].getBrush(), darkGreenPen3, tagFlashR[set].getTxtPen(), NFLASH, getTPS()/4, 0);
+		tagSplitR.toggleBrushAndPens(tagSplitR.getBrush(), darkGreenPen3, tagSplitR.getTxtPen(), NFLASH, getTPS()/4, 1);
+	}
+	
+	//
+	// selectTagAndData
+	//
+	function selectTagAndData(num set, num k) {
+		tagR[set][k].toggleBrushAndPens(tagR[set][k].getBrush(), darkGreenPen3, tagR[set][k].getTxtPen(), NFLASH, getTPS()/4, 0);
+		dataR[set][k].toggleBrushAndPens(dataR[set][k].getBrush(), darkGreenPen3, dataR[set][k].getTxtPen(), NFLASH, getTPS()/4, 1);
+		tagR[set][k].setPen(darkGreenPen3);
+		dataR[set][k].setPen(darkGreenPen3);
+	}
+
+	//
+	// readMemory
+	//
+	function readMemory(Memory memory) {
+		memory.abus.moveUp(TICKS, 1);
+		memory.dbus.moveDown(TICKS, 1);
+	}
+
+	//
+	// set colour indicates age
+	//
+	num function oldestk(num set) {
+    	num oldest = 0;
+    	num min = 1000; // a high value
+    	for (num kk = 0; kk < K; kk++) {
+			if ((order[set][kk] == -1) && (count[set][kk] < min)) {
+				min = count[set][kk];
+				oldest = kk;
+			}
+		}
+		return oldest;
+	}
+
+	//
+	// reorder
+	//
+	function reorder(num set) {
+		num kk;
+		for (kk = 0; kk < K; kk++)
+			order[set][kk] = -1;
+		for (kk = 0; kk < K; kk++)
+			order[set][oldestk(set)] = kk;
+		for (kk = 0; kk < K; kk++)
+			tagR[set][kk].setBrush(ageBrush[order[set][kk]]);
+	}
+
+	//
+	// hit
+	//
+	function hit(num a) {
+
+		num tag = a >> tagshift;
+		num set = (a >> setshift) & setmask;
+		num off = a & lmask;
+		num hitx = 0;
+		num mink;
+
+ 		info.setTxt("step 1: extract tag, set number and offset from address");
+ 		aTrackerR.setTxt("%04x", a);
+ 		aTrackerR.setOpacity(1);
+ 		wait(TICKS);
+ 		setSplitTxt(0, tag, set, off);
+ 		aTrackerR.setOpacity(0, TICKS, 1);	// {joj 02/09/20}
+ 		info.setTxt("step 2: search set %d for tag %03x", set, tag);
+		flashTags(set);
+
+        for (num k = 0; k < K; k++) {
+           if (tagsd[set][k] == tag) {
+               hitx = 1;
+               hits++;
+               count[set][k] = indx;
+               tagR[set][k].setTxt("%03x", tag);
+               mink = k;
+           }
+		}
+
+		if (hitx == 0) {
+
+            mink = 0;
+            num min = 1000; // a high value
+            for (k = 0; k < K; k++) {
+			    if (count[set][k] < min) {
+					min = count[set][k];
+					mink = k;
+				}
+			}
+ 			count[set][mink] = indx;
+ 			tagsd[set][mink] = tag;
+
+			info.setTxt("step 3: MISS - select least recently used tag");
+			selectTagAndData(set, mink);
+			info.setTxt("step 4: MISS - read data from memory and update tag and cache line");
+			readMemory(memory);
+			tagR[set][mink].setTxt("%03x", tag);
+			dataR[set][mink].setTxt("(%03xx)", addr[indx] >> 4);
+			wait(TICKS/2);
+			reorder(set);
+			addrR[indx].setBrush(redBrush);
+			info.setTxt("step 5: output data");
+			missCntR.setTxt("misses:%3d", (indx - hits + 1));
+
+		} else {
+
+			info.setTxt("step 4: HIT - update tag LRU ordering");
+			selectTagAndData(set, mink);
+			reorder(set);
+			info.setTxt("step 5: output data");
+			addrR[indx].setBrush(greenBrush);
+			hitCntR.setTxt("hits:%3d", hits);
+
+        }
+
+		//
+		// select data out
+		//
+		dataOut.setPos(dataR[set][mink].getMbb(1).x() + w*4/L*(off >> 2), dataR[set][mink].getMbb(1).y());
+		dataOut.setOpacity(1, TICKS, 1);	// {joj 02/09/20}
+
+	}
+
+}
+
+Cache cache = Cache();
+
+//
+// CPU
+//
+class CPU() {
+	Rectangle memory = Rectangle2(0, 0, blackPen, 0, CPUX, CPUY, CPUW, CPUH, redPen, labelFont, "cpu");
+	memory.setTxtOff(0, CPUH/3);
+	memory.setRounded(4, 4);
+	num l = CPUY-(cache.cacheY+cache.cacheH);
+	BusArrow abus = BusArrow(W/2-CPUW/4, CPUY-l, BUSW, l, GRAY96, RED);
+	BusArrow dbus = BusArrow(W/2+CPUW/4, CPUY-l, BUSW, l, GRAY96, BLUE);
+	Rectangle addrT = Txt(0, 0, W/2-CPUW/4, CPUY + 12, redPen, font, "address");
+	Rectangle dataT = Txt(0, 0, W/2+CPUW/4, CPUY + 12, bluePen, font, "data");
+	Rectangle addr = Rectangle(0, VBOTTOM, blackPen, 0, CPUX + CPUW/4, CPUY + CPUH/2, -ADDRW/2, -ADDRH/2, ADDRW, ADDRH, blackPen, font);
+	addr.setRounded(4, 4);
+	Rectangle data = Rectangle(0, VBOTTOM, blackPen, 0, CPUX + 3*CPUW/4, CPUY + CPUH/2, -ADDRW/2, -ADDRH/2, ADDRW, ADDRH, blackPen, font);
+	data.setRounded(4, 4);
+}
+
+// create cache followed by memory and cpu
+Memory memory = Memory(cache.cacheY-(MEMY+MEMH));
+CPU cpu = CPU();
+
+// init
+function init() {
+	cpu.abus.reset();
+	cpu.dbus.reset();
+	cpu.addr.setTxt("");
+	cpu.addr.setPen(blackPen);
+	cpu.data.setTxt("");
+	cpu.data.setPen(blackPen);
+	memory.abus.reset();
+	memory.dbus.reset();
+	cache.resetTagsAndData();
+	cache.dataOut.setOpacity(0);
+	cache.setSplitTxt(1);
+	aTrackerR.setOpacity(0);
+	info.setTxt("");
+}
+
+// trackAddr
+function trackAddr() {
+	if (indx != 0)
+		addrR[indx-1].setPen(blackPen);
+	addrR[indx].setPen(redPen2);
+	aTrackerR.setSz(ADDRW, ADDRH);
+	aTrackerR.setPos(addrR[indx].getMbb(1).x(), addrR[indx].getMbb(1).y());
+	aTrackerR.setTxt("%04x", addr[indx]);
+	aTrackerR.setOpacity(1);
+	aTrackerR.setPos(cpu.addr.getMbb(1).x(), cpu.addr.getMbb(1).y(), 2*TICKS, 1);	// {joj 02/09/20}
+	cpu.addr.setPen(redPen2);  
+	cpu.addr.setTxt("%04x", addr[indx]);
+	aTrackerR.setOpacity(0);
+	cpu.abus.moveUp(TICKS, 1);
+}
+
+// startStopButton eventMB
+when startStopButton ~> eventMB(num down, num flags, num, num) {
+    if (down && (flags & MB_LEFT))
+        state ? stop() : start();
+	return 0;
+}
+
+// eventStartStop
+when ~> eventStartStop(num start) {
+	startStopButton.setTxt(start ? "stop" : "start");
+	state = start;
+	return 0;
+}
+
+// resetButton eventMB
+when resetButton ~> eventMB(num down, num flags, num, num) {
+	if (down && (flags & MB_LEFT))
+		reset();
+	return 0;
+}
+
+// lButton eventMB
+when lButton ~> eventMB(num down, num flags, num, num) {
+	if (down) {
+		if (flags & MB_LEFT) {
+			L = (L == 32) ? 16 : 32;
+		} else if (flags & MB_RIGHT) {
+			L = (L == 16) ? 32 : 16;
+		}		
+		setArgFromNum("L", L);
+		reset();
+	}
+	return 0;
+}
+
+// kButton eventMB
+when kButton ~> eventMB(num down, num flags, num, num) {
+	if (down) {
+		if (flags & MB_LEFT) {
+			K = (K >= 8) ? 1 : K * 2;
+		} else if (flags & MB_RIGHT) {
+			K = (K <= 1) ? 8 : K / 2;
+		}		
+		setArgFromNum("K", K);
+		reset();
+	}
+	return 0;
+}
+
+// nButton eventMB
+when nButton ~> eventMB(num down, num flags, num, num) {
+	if (down) {
+		if (flags & MB_LEFT) {
+			N = (N >= 8) ? 1 : N * 2;
+		} else if (flags & MB_RIGHT) {
+			 N = (N <= 1) ? 8 : N / 2;
+		}		
+		setArgFromNum("N", N);
+		reset();
+	}
+	return 0;
+}
+
+// aButton eventMB
+when aButton ~> eventMB(num down, num flags, num, num) {
+	if (down) {
+		if (flags & MB_LEFT) {
+			A = (A >= 2) ? 0 : A + 1;
+		} else if (flags & MB_RIGHT) {
+			A = (A <= 0) ? 2 : A - 1;
+		}		
+		setArgFromNum("A", A);
+		reset();
+	}
+	return 0;
+}
+
+// speedButton eventMB
+when speedButton ~> eventMB(num down, num flags, num, num) {
+	if (down) {
+		if (flags & MB_LEFT) {
+			T = (T >= 200) ? 10 : (T + 10) / 10 * 10;
+		} else if (flags & MB_RIGHT) {
+			 T = (T <= 10) ? 200 : (T - 10) / 10 * 10;
+		}		
+		speedButton.setTxt("%d ticks/s", T);
+		setTPS(T);
+	}
+	return 0;
+}
+
+// eventSetTPS
+when ~> eventSetTPS(num tps) {
+	T = tps;
+	setArg("T", T.toString());
+	speedButton.setTxt("%d ticks/s", T);
+	return 0;
+}
+
+// helpButton eventMB
+when helpButton ~> eventMB(num down, num flags, num, num) {
+	if (down && (flags & MB_LEFT))
+		getURL("cacheHelp.htm");
+	return 0;
+}
+
+// vivioHelp eventMB
+when vivioHelp ~> eventMB(num down, num flags, num x, num y) {
+	if (down && (flags & MB_LEFT))
+		getURL("../vivio.htm");
+	return 0;
+}
+
+wait(1);
+
+for (indx = 0; indx < NADDR; indx++) {
+	init();
+ 	trackAddr();
+ 	cache.hit(addr[indx]);
+ 	cpu.dbus.moveDown(TICKS, 1);
+ 	cpu.data.setTxt("(%04x)", addr[indx]);
+ 	cpu.data.setPen(bluePen2);
+ 	checkPoint();
+ 	wait(TICKS);
+}
+
+debug("FINISHED tick=%d", getTick());
+
+// eof
