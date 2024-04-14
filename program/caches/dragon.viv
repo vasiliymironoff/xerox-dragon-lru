@@ -145,13 +145,7 @@ title.setPt(1, title.getTxtW() + 16, TITLEH);
 // help info
 //
 string infoStr =  "Research work #2\n";
-infoStr += "Students:\n";
-infoStr += "Mironov Vasiliy\n";
-infoStr += "Seleda Daniil\n";
-infoStr += "Duro Ilya\n";
-infoStr += "??????? ???\n";
-infoStr += "??????? ?????\n";
-infoStr += "???? ???.";
+
 Rectangle2(0, HLEFT | VCENTRE | JUSTIFY, 0, 0, INFOX, INFOY, INFOW, INFOH, blackPen, infoFont, infoStr);
 
 //
@@ -160,15 +154,20 @@ Rectangle2(0, HLEFT | VCENTRE | JUSTIFY, 0, 0, INFOX, INFOY, INFOW, INFOH, black
 Txt(0, HRIGHT | VBOTTOM, W - 20, H - 10, gray192Pen, lastModifiedFont, timeToString(getLastModifiedMS(), "last modified %e-%b-%y"));
 
 const num NCPU 			= 4;		// number of CPUs
-const num NADDR			= 16;		// number of addresses
+const num NADDR			= 16;	// number of addresses
 const num NSET			= 4;		// number of sets in cache
-
+const num ASS 			= 2;
 const num TICKS 		= 20;		// animation speed
 
 const num INVALID 		= 0;		// MESI cache line states
 const num SHARED 		= 1;
 const num EXCLUSIVE 	= 2;
 const num MODIFIED 		= 3;
+
+const num D = 0;
+const num VE = 1;
+const num SD = 2;
+const num SC = 3;
 
 num wValue				= 0;		// value written into cache
 //num buglevel			= 0;		// buglevel [0 = bugfree]
@@ -386,8 +385,9 @@ class Cache(num x, num y, num _cpuN) {
 	function reset() {
 		cpuabus.reset();
 		cpudbus.reset();
-		highlight(0, 0);
-		highlight(1, 0);
+		for (num i = 0; i < NSET; i++) {
+			highlight(i, 0);
+		}
 	}
 
 	//
@@ -410,8 +410,8 @@ class Cache(num x, num y, num _cpuN) {
 
 	//
 	// flush data from cache line to memory
-	//
-	function flush(num addr) {
+	// 
+	function flush(num addr) { // TODO
 		num set = addr % NSET;
 		num flushaddr = a[set];
 		abus.moveUp(TICKS, 0);
@@ -435,12 +435,15 @@ class Cache(num x, num y, num _cpuN) {
 	// each cache must watch the bus and update its state according to the protocol
 	//
 	// if addr NOT in cache then no action need be taken
-	//
+	// 
+	// FOR GRAGON: ...
+	// 
+	// FOR MESI:
 	// bus read: must assert shared line & update state to SHARED
 	//		  	 if cache line MODIFIED must intervene and place data on bus
 	// bus write: must set state to INVALID
 	//
-	function busWatchHelper(num addr, num rw) {
+	function busWatchHelper(num addr, num rw) { // TODO
 
 		num set = addr % NSET;
 
@@ -501,7 +504,7 @@ class Cache(num x, num y, num _cpuN) {
 	//
 	// initiate bus watching by other CPUs
 	//
-	function busWatch(num addr, num cpu, num rw) {
+	function busWatch(num addr, num cpu, num rw) { // TODO
 		dirtyCPU = -1;
 		isshared = 0;
 		for (num i = 0; i < NCPU; i++) {
@@ -519,7 +522,7 @@ class Cache(num x, num y, num _cpuN) {
 	//
 	// NB: cpu may already have lock
 	//
-	function getBusLock() {
+	function getBusLock() { // TODO
  		if (busLock == cpuN)
  			return;
  		while (busLock >= 0)
@@ -530,7 +533,7 @@ class Cache(num x, num y, num _cpuN) {
 	//
 	// releaseBusLock
 	//
-	function releaseBusLock() {
+	function releaseBusLock() { // TODO
  		busLock = -1;
  		wait(1);		// allow other CPUs get busLock
 	}	
@@ -542,7 +545,7 @@ class Cache(num x, num y, num _cpuN) {
 	//
 	// hit:  read from cache
 	//
-	function read(num addr, num animateCPUBus) {
+	function read(num addr, num animateCPUBus) { // TODO
 
 		//debug("read");
 
@@ -646,7 +649,7 @@ class Cache(num x, num y, num _cpuN) {
 	//		 if SHARED write through to memory and ...
 	//		 enter EXCLUSIVE state (other caches will INVALIDTE their copies)
 	//
-	function write(num addr) {
+	function write(num addr) { // TODO
 
 		busOp.setOpacity(0);
 
@@ -951,25 +954,25 @@ function startTransactions() {
 //
 // self test
 //
-if (getArgAsNum("selfTest", 0)) {
+//if (getArgAsNum("selfTest", 0)) {
 
-	debug("selfTest");
+//	debug("selfTest");
 
 	// see MESIHelp.htm
 
-	cpu[0].rb[0].cpuButtonAction();	// 1
-	cpu[0].rb[0].cpuButtonAction();	// 2
-	cpu[0].wb[0].cpuButtonAction();	// 3
-	cpu[0].wb[0].cpuButtonAction();	// 4
-	cpu[1].rb[0].cpuButtonAction();	// 5
-	cpu[1].wb[0].cpuButtonAction();	// 6
-	cpu[1].wb[0].cpuButtonAction();	// 7
-	cpu[0].wb[0].cpuButtonAction();	// 8
-	cpu[0].wb[2].cpuButtonAction();	// 9
-	cpu[0].wb[0].cpuButtonAction();	// 10
+//	cpu[0].rb[0].cpuButtonAction();	// 1
+//	cpu[0].rb[0].cpuButtonAction();	// 2
+//	cpu[0].wb[0].cpuButtonAction();	// 3
+//	cpu[0].wb[0].cpuButtonAction();	// 4
+//	cpu[1].rb[0].cpuButtonAction();	// 5
+//	cpu[1].wb[0].cpuButtonAction();	// 6
+//	cpu[1].wb[0].cpuButtonAction();	// 7
+//	cpu[0].wb[0].cpuButtonAction();	// 8
+//	cpu[0].wb[2].cpuButtonAction();	// 9
+//	cpu[0].wb[0].cpuButtonAction();	// 10
 	
-	debug("FINISHED tick=%d", getTick());
+//	debug("FINISHED tick=%d", getTick());
 
-}
+//}
 
 // eof
