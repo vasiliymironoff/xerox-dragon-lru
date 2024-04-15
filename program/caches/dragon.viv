@@ -70,7 +70,7 @@ const num INFOH		= 150;
 
 const num MEMY		= 80;			// memory
 const num MEMW		= 180;
-const num MEMH		= 100 * 4; // ??????? ?? 300
+const num MEMH		= 100 * 4; // 300
 
 const num ABUSY		= 290 + 300;			// address bus
 const num ABUSW		= 12;			// width of pen used to draw address bus
@@ -144,24 +144,25 @@ title.setPt(1, title.getTxtW() + 16, TITLEH);
 //
 // help info
 //
-string infoStr =  "Research work #2\n";
+//string infoStr =  "Research work #2\n";
 
-Rectangle2(0, HLEFT | VCENTRE | JUSTIFY, 0, 0, INFOX, INFOY, INFOW, INFOH, blackPen, infoFont, infoStr);
+//Rectangle2(0, HLEFT | VCENTRE | JUSTIFY, 0, 0, INFOX, INFOY, INFOW, INFOH, blackPen, infoFont, infoStr);
 
 //
 // lastModified
 //
+
 Txt(0, HRIGHT | VBOTTOM, W - 20, H - 10, gray192Pen, lastModifiedFont, timeToString(getLastModifiedMS(), "last modified %e-%b-%y"));
 
 const num NCPU 			= 4;		// number of CPUs
 const num NADDR			= 16;	// number of addresses
 const num NSET			= 4;		// number of sets in cache
 const num ASS 			= 2;
-const num TICKS 		= 20;		// animation speed
+const num TICKS 		    = 20;		// animation speed
 
-const num INVALID 		= 0;		// MESI cache line states
+const num INVALID 		= -1;		// MESI cache line states
 const num SHARED 		= 1;
-const num EXCLUSIVE 	= 2;
+const num EXCLUSIVE 	    = 2;
 const num MODIFIED 		= 3;
 
 const num D = 0;
@@ -315,7 +316,7 @@ function showBusOp(string s) {
 //
 // bus cycles counter
 //
-Rectangle busCyclesT = Txt(0, HLEFT, 2*W/3, (ABUSY+DBUSY)/2, 0, labelFont, "bus cycles: %d", busCycles);
+Rectangle busCyclesT = Txt(0, HLEFT, 2*W/3 + 30, (ABUSY+DBUSY)/2, 0, labelFont, "bus cycles: %d", busCycles);
 
 Cache cache[NCPU];				// caches
 CPU cpu[NCPU];					// CPUs
@@ -327,6 +328,7 @@ class Cache(num x, num y, num _cpuN) {
 
 	Rectangle aR[NSET], dR[NSET], stateR[NSET];
 	num a[NSET], d[NSET], state[NSET];
+	num lru[NADDR]; // lru
 
 	const num cpuN = _cpuN;
 
@@ -334,6 +336,7 @@ class Cache(num x, num y, num _cpuN) {
 	const num bw0 = 20;
 	const num bw1 = (CACHEW-4*bgap-bw0)/2;
 	const num bh = (CACHEH-(NSET+1)*bgap)/NSET;
+	
 
 	BusArrow sharedbus = BusArrow(x+bgap+bw0/2, SBUSY+SBUSW/2, SBUSW, y-SBUSY-SBUSW/2, GRAY32, MAGENTA);
 	BusArrow abus = BusArrow(x+2*bgap+bw0+bw1/2, ABUSY+ABUSW/2, ABUSW, y-ABUSY-ABUSW/2, GRAY32, BLUE);
@@ -349,7 +352,7 @@ class Cache(num x, num y, num _cpuN) {
 
 	for (num i = 0; i < NSET; i++) {
 		state[i] = INVALID;
-		stateR[i] = Rectangle2(0, 0, blackPen, whiteBrush, x+bgap, y+(i+1)*bgap+i*bh, bw0, bh, blackPen, bf0, "I");
+		stateR[i] = Rectangle2(0, 0, blackPen, whiteBrush, x+bgap, y+(i+1)*bgap+i*bh, bw0, bh, blackPen, bf0);
 		stateR[i].setRounded(2,2);
 		a[i] = 0;
 		aR[i] = Rectangle2(0, 0, blackPen, whiteBrush, x+2*bgap+bw0, y+(i+1)*bgap+i*bh, bw1, bh, blackPen, bf0);
@@ -358,7 +361,10 @@ class Cache(num x, num y, num _cpuN) {
 		dR[i] = Rectangle2(0, 0, blackPen, whiteBrush, x+3*bgap+bw0+bw1, y+(i+1)*bgap+i*bh, bw1, bh, blackPen, bf0);
 		dR[i].setRounded(2, 2);
 	}
-
+	
+	for (i = 0; i < NADDR; i++) {
+		lru[i] = 0;
+	}
 	//
 	// helper function to set values
 	//
@@ -410,23 +416,29 @@ class Cache(num x, num y, num _cpuN) {
 
 	//
 	// flush data from cache line to memory
+	// flash
 	// 
-	function flush(num addr) { // TODO
-		num set = addr % NSET;
-		num flushaddr = a[set];
-		abus.moveUp(TICKS, 0);
-		dbus.moveUp(TICKS, 1);
-		aabus.setColour(BLUE);
-		ddbus.setColour(RED);
-		memory.abus.moveUp(TICKS, 0);
-		memory.dbus.moveUp(TICKS, 1);
-		state[set] = INVALID;
-		stateR[set].setTxt("I");
-		memory.stale[flushaddr] = 0;
-		memory.memR[flushaddr].setBrush(whiteBrush);
-		memory.mem[flushaddr] = d[set];
-		memory.memR[flushaddr].setTxt("address: a%d data: %d", flushaddr, memory.mem[flushaddr]);
-		resetBus();
+	function flush(num addr) { // TODO 
+		num set_number = addr % ASS;
+		for (num set = set_number; set < NSET; set += ASS){
+			// num set = addr % NSET; // 
+			num flushaddr = a[set];
+			if (addr == flushaddr) {
+				abus.moveUp(TICKS, 0);
+				dbus.moveUp(TICKS, 1);
+				aabus.setColour(BLUE);
+				ddbus.setColour(RED);
+				memory.abus.moveUp(TICKS, 0);
+				memory.dbus.moveUp(TICKS, 1);
+				state[set] = INVALID;
+				stateR[set].setTxt("");
+				memory.stale[flushaddr] = 0;
+				memory.memR[flushaddr].setBrush(whiteBrush);
+				memory.mem[flushaddr] = d[set];
+				memory.memR[flushaddr].setTxt("address: a%d data: %d", flushaddr, memory.mem[flushaddr]);
+				resetBus();
+			}
+		}
 	}
 
 	//
@@ -442,11 +454,9 @@ class Cache(num x, num y, num _cpuN) {
 	// bus read: must assert shared line & update state to SHARED
 	//		  	 if cache line MODIFIED must intervene and place data on bus
 	// bus write: must set state to INVALID
-	//
-	function busWatchHelper(num addr, num rw) { // TODO
-
+	// 
+	function busWatchHelper(num addr, num rw) { // TODO rw == 0: read, rw != 0: write
 		num set = addr % NSET;
-
 		//
 		// test if address in cache
 		//
@@ -469,7 +479,7 @@ class Cache(num x, num y, num _cpuN) {
 		if (hit == 0)
 			return;											// {joj 23/09/17}
 
-		if (rw == 0) {
+		if (rw == 0) { // rw == 0 - read, rw != 0 - write
 
 			//
 			// read
@@ -478,38 +488,37 @@ class Cache(num x, num y, num _cpuN) {
 				if (state[set] == MODIFIED) {
 					cache[cpuN].highlight(set, 1);
 					cache[cpuN].dbus.moveUp(TICKS, 0);		// {joj 11/06/16}
-				}
+				
 				state[set] = SHARED;
 				stateR[set].setTxt("S");
 				highlight(set, 1);
 			}
 			sharedbus.moveUp(TICKS, 1);						// {joj 11/06/16}
 			sharedBus.setColour(MAGENTA);					// {joj 11/06/16}
-
-		} else {
+			
+			} else {
 
 			//
 			// write
 			//
-			//if (buglevel != 1) {
-			//	state[set] = INVALID;
-			//	stateR[set].setTxt("I");
-		//		highlight(set, 1);
-		//	}
+				//if (buglevel != 1) {
+					state[set] = INVALID;
+					stateR[set].setTxt("I");
+					highlight(set, 1);
+				//}
 
+			}
 		}
-
 	}
-
-	//
+	// 
 	// initiate bus watching by other CPUs
-	//
+	// 
 	function busWatch(num addr, num cpu, num rw) { // TODO
 		dirtyCPU = -1;
-		isshared = 0;
+		isshared = 0; 
 		for (num i = 0; i < NCPU; i++) {
 			if (i != cpu)
-				fork(cache[i].busWatchHelper(addr, rw));
+				fork(cache[i].busWatchHelper(addr, rw)); // 
 		}
 		if (rw == 0) {										// {joj 11/06/16}
 			wait(2*TICKS);									// {joj 11/06/16}
@@ -518,7 +527,7 @@ class Cache(num x, num y, num _cpuN) {
 	}
 
 	//
-	// getBusLock
+	// getBusLock ()
 	//
 	// NB: cpu may already have lock
 	//
@@ -560,7 +569,7 @@ class Cache(num x, num y, num _cpuN) {
 		// handle read hit
 		//
 		if ((a[set] == addr) && (state[set] != INVALID)) {
-			highlight(set, 1);
+			highlight(set, 1); // read hit
 			if (animateCPUBus)
 				cpudbus.moveDown(TICKS, 1);
 			return;
@@ -579,15 +588,15 @@ class Cache(num x, num y, num _cpuN) {
 		//
 		// flush cache line if MODIFIED
 		//
-		//if ((state[set] == MODIFIED) && (buglevel != 2)) {
-		//	showBusOp(sprintf("CPU %d flushes a%d from its cache to memory", cpuN, addr));
-		//	flush(addr);
-		//	busCycles++;
-		//	busCyclesT.setTxt("bus cycles: %d", busCycles);
-		//	releaseBusLock();	// allows other CPUs get bus between flush and read cycles
-		//	getBusLock();		// get bus again
-		//	resetBus();
-		//}
+		if ((state[set] == MODIFIED)){// && (buglevel != 2)) 
+			showBusOp(sprintf("CPU %d flushes a%d from its cache to memory", cpuN, addr));
+			flush(addr);
+			busCycles++;
+			busCyclesT.setTxt("bus cycles: %d", busCycles);
+			releaseBusLock();	// allows other CPUs get bus between flush and read cycles
+			getBusLock();		// get bus again
+			resetBus();
+		}
 
 		showBusOp(sprintf("CPU %d reads a%d from memory", cpuN, addr));
 		busCycles++;
@@ -599,7 +608,7 @@ class Cache(num x, num y, num _cpuN) {
  		fork(busWatch(addr, cpuN, 0));				// {joj 11/06/16}
  		wait(TICKS);								// {joj 11/06/16}
 
-		if (dirtyCPU >= 0) {
+		if (dirtyCPU >= 0) { 
 		
 			//
 			// read data from another cache
@@ -638,6 +647,8 @@ class Cache(num x, num y, num _cpuN) {
 			cpudbus.moveDown(TICKS, 1);
 
 	}
+	
+
 
 	//
 	// CPU cache write
@@ -661,9 +672,9 @@ class Cache(num x, num y, num _cpuN) {
 
 		wValue++;
 
-		//
+		// 
 		// write hit and bus NOT needed
-		//
+		// 
 		if ((a[set] == addr) && ((state[set] == EXCLUSIVE) || (state[set] == MODIFIED))) {
 			setValues(set, addr, wValue);
 			state[set] = MODIFIED;
@@ -680,7 +691,7 @@ class Cache(num x, num y, num _cpuN) {
 			// read data from memory (may need to flush MODIFIED cache line)
 			//
 			if ((state[set] == INVALID) || (a[set] != addr))
-				read(addr, 0);
+				read(addr, 0); 
 
 			if (state[set] == SHARED) {
 
@@ -732,7 +743,9 @@ class Cache(num x, num y, num _cpuN) {
 
 		}
 	}
-} 
+}
+
+
 
 //
 // caches
@@ -752,7 +765,7 @@ const num bh = (CPUH-(NADDR+1)*bgap)/NADDR;
 class CPU(num x, num y, num _cpuN) {
 
 	const num cpuN = _cpuN;		// already have a global variable cpu[NCPU]
-	num buttonLock = 0;			// button lock
+	num buttonLock = 0;			// button lock 
 	CPUButton selected;			// last button pressed
 
 	//
@@ -851,7 +864,7 @@ class CPU(num x, num y, num _cpuN) {
 	Txt(0, HLEFT | VTOP, x+CPUW-20, y-30, redPen, labelFont, "CPU %d", cpuN);
 	
 	//
-	// resetButtons
+	//resetButtons
 	//
 	function resetButtons() {
 		for (num i = 0; i < NADDR; i++) {
@@ -901,7 +914,7 @@ function startTransactions() {
 //
 // buttons
 //
-//SimpleButton resetButton = SimpleButton(W-2*BW-2*BW/8, BY, BW, BH, whiteBrush, gray224Brush, gray64Pen2, gray128Pen, blackPen, bf0, bf1, "reset");
+SimpleButton resetButton = SimpleButton(W-2*BW-2*BW/8, BY, BW, BH, whiteBrush, gray224Brush, gray64Pen2, gray128Pen, blackPen, bf0, bf1, "reset");
 //SimpleButton bugButton = SimpleButton(W-BW-BW/8, BY, BW, BH, whiteBrush, gray224Brush, gray64Pen2, gray128Pen, blackPen, bf0, bf1, "bug free!");
 //SimpleButton helpButton = SimpleButton(W-2*BW-2*BW/8, BY+BH+BH/4, BW, BH, whiteBrush, gray224Brush,gray64Pen2, gray128Pen, blackPen, bf0, bf1, "help");
 //SimpleButton vivioButton = SimpleButton(W-BW-BW/8, BY+BH+BH/4, BW, BH, whiteBrush, gray224Brush,gray64Pen2, gray128Pen, blackPen, bf0, bf1, "VivioJS help");
@@ -909,13 +922,13 @@ function startTransactions() {
 //
 // resetButton eventMB handler
 //
-//when resetButton ~> eventMB(num down, num flags, num, num) {
-//	if (down && (flags & MB_LEFT)) {
-//		//arg["arg1"] = 0;
-//		reset();
-//	}
-//	return 0;
-//}
+when resetButton ~> eventMB(num down, num flags, num, num) {
+	if (down && (flags & MB_LEFT)) {
+		//arg["arg1"] = 0;
+		reset();
+	}
+	return 0;
+}
 
 //
 // bugButton eventMB handler
