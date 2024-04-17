@@ -142,13 +142,6 @@ title.setTxtOff(0, 2);
 title.setPt(1, title.getTxtW() + 16, TITLEH);
 
 //
-// help info
-//
-//string infoStr =	"Research work #2\n";
-
-//Rectangle2(0, HLEFT | VCENTRE | JUSTIFY, 0, 0, INFOX, INFOY, INFOW, INFOH, blackPen, infoFont, infoStr);
-
-//
 // lastModified
 //
 
@@ -160,19 +153,13 @@ const num NSET			= 4;		// number of sets in cache
 const num ASS 			= 2;
 const num TICKS 			= 20;		// animation speed
 
-const num INVALID 		= -1;		// MESI cache line states
-const num SHARED 		= 1;
-const num EXCLUSIVE 		= 2;
-const num MODIFIED 		= 3;
-
-const num EMPTY = -1;
+const num I = -1;
 const num D = 0;
 const num VE = 1;
 const num SD = 2;
 const num SC = 3;
 
 num wValue				= 0;		// value written into cache
-//num buglevel			= 0;		// buglevel [0 = bugfree]
 
 num dirtyCPU			= -1;		// indicates CPU supplies dirty data
 num dirtyCPUSet	 = -1;
@@ -354,8 +341,8 @@ class Cache(num x, num y, num _cpuN) {
 	busOp.moveToFront();
 
 	for (num i = 0; i < NSET; i++) {
-		state[i] = EMPTY;
-		stateR[i] = Rectangle2(0, 0, blackPen, whiteBrush, x+bgap, y+(i+1)*bgap+i*bh, bw0, bh, blackPen, bf0);
+		state[i] = I;
+		stateR[i] = Rectangle2(0, 0, blackPen, whiteBrush, x+bgap, y+(i+1)*bgap+i*bh, bw0, bh, blackPen, bf0, "I");
 		stateR[i].setRounded(2,2);
 		a[i] = -1;
 		aR[i] = Rectangle2(0, 0, blackPen, whiteBrush, x+2*bgap+bw0, y+(i+1)*bgap+i*bh, bw1, bh, blackPen, bf0);
@@ -419,29 +406,33 @@ class Cache(num x, num y, num _cpuN) {
 
 	//
 	// flush data from cache line to memory
-	// flash
 	// 
-	function flush(num addr) { // TODO 
-		num set_number = addr % ASS;
-		for (num set = set_number; set < NSET; set += ASS){
-			// num set = addr % NSET; // 
-			num flushaddr = a[set];
-			if (addr == flushaddr) {
-				abus.moveUp(TICKS, 0);
-				dbus.moveUp(TICKS, 1);
-				aabus.setColour(BLUE);
-				ddbus.setColour(RED);
-				memory.abus.moveUp(TICKS, 0);
-				memory.dbus.moveUp(TICKS, 1);
-				state[set] = INVALID;
-				stateR[set].setTxt("");
-				memory.stale[flushaddr] = 0;
-				memory.memR[flushaddr].setBrush(whiteBrush);
-				memory.mem[flushaddr] = d[set];
-				memory.memR[flushaddr].setTxt("address: a%d data: %d", flushaddr, memory.mem[flushaddr]);
-				resetBus();
-			}
+	function flush(num cpuN, num addr) { // TODO 
+		num set = -1;
+		num s1 = addr % ASS;
+		num s2 = s1 + 2;
+		if (a[s1] == addr) {
+			set = s1;
+		} else if (a[s2] == addr){
+			set = s2;
 		}
+
+		num flushaddr = a[set];
+		if (addr == flushaddr) {
+			abus.moveUp(TICKS, 0);
+			dbus.moveUp(TICKS, 1);
+			aabus.setColour(BLUE);
+			ddbus.setColour(RED);
+			memory.abus.moveUp(TICKS, 0);
+			memory.dbus.moveUp(TICKS, 1);
+			showBusOp(sprintf("CPU %d writes a%d in memory", cpuN, addr));
+			memory.stale[flushaddr] = 0;
+			memory.memR[flushaddr].setBrush(whiteBrush);
+			memory.mem[flushaddr] = d[set];
+			memory.memR[flushaddr].setTxt("address: a%d data: %d", flushaddr, memory.mem[flushaddr]);
+			resetBus();
+		}
+		
 	}
 
 	//
@@ -449,15 +440,6 @@ class Cache(num x, num y, num _cpuN) {
 	//
 	// each cache must watch the bus and update its state according to the protocol
 	//
-	// if addr NOT in cache then no action need be taken
-	// 
-	// FOR GRAGON: ...
-	// 
-	// FOR MESI:
-	// bus read: must assert shared line & update state to SHARED
-	//		  	 if cache line MODIFIED must intervene and place data on bus
-	// bus write: must set state to INVALID
-	// 
 	function busWatchHelper(num addr, num rw) { // TODO rw == 0: read, rw != 0: write
 		num set = -1;
 		num s1 = addr % ASS;
@@ -468,27 +450,22 @@ class Cache(num x, num y, num _cpuN) {
 			set = s2;
 		}
 		
-		
-		//
-		// test if address in cache
-		//
-		//num hit = (a[set] == addr) && (state[set] != INVALID);
 		num hit = set >= 0;
+		
 		if (!hit) {
-			sharedbus.moveDown(TICKS, 1);
+			abus.moveDown(TICKS, 1);
 		}
 		if (hit && rw == 0 && state[set] != SC) {
+			abus.moveDown(TICKS, 1);
 			state[set] = SD;	
 			stateR[set].setTxt("SD"); 
 			isshared = 1;
 			dirtyCPU = cpuN;
 			dirtyCPUSet = set;
-			sharedbus.moveDown(TICKS, 1);
 			sharedbus.moveUp(TICKS, 0);
-			abus.moveUp(TICKS, 0);
 			dbus.moveUp(TICKS, 1);
-			aabus.setColour(BLUE);
-			ddbus.setColour(RED);	
+			ddbus.setColour(RED);
+			sharedBus.setColour(MAGENTA);		
 			return;
 		}
 
@@ -503,58 +480,8 @@ class Cache(num x, num y, num _cpuN) {
 			setValues(set, addr, wValue);
 			
 		}
-		//
-		// calculate isshared & dirtyCPU here
-		//
-		//if (hit && rw == 0) {
-			//isshared = 1;
-			//if (state[set] == MODIFIED)
-				//dirtyCPU = cpuN;
-		//}
-
-		//abus.moveDown(TICKS, 1);
-
-		//
-		// return if address not in cache
-		//
-		//if (hit == 0)
-			//return;											// {joj 23/09/17}
-
-		//if (rw == 0) { // rw == 0 - read, rw != 0 - write
-   	
-			//
-			// read
-			//
-			//if ((state[set] == EXCLUSIVE) || (state[set] == MODIFIED)) {
-				//if (state[set] == MODIFIED) {
-					//cache[cpuN].highlight(set, 1);
-					//cache[cpuN].dbus.moveUp(TICKS, 0);		// {joj 11/06/16}
-				
-				//state[set] = SHARED;
-				//stateR[set].setTxt("S");
-				//highlight(set, 1);
-			//}
-			//sharedbus.moveUp(TICKS, 1);						// {joj 11/06/16}
-			//sharedBus.setColour(MAGENTA);					// {joj 11/06/16}
-			
-		//} else {
-
-			//
-			// write
-			//
-				//if (buglevel != 1) {
-					//state[set] = INVALID;
-					//stateR[set].setTxt("I");
-					//highlight(set, 1);
-				//}
-
-			//}
-		//}
 	}
 
-	// 
-	// initiate bus watching by other CPUs
-	// 
 	function busWatch(num addr, num cpu, num rw) { // TODO
 		dirtyCPU = -1;
 		isshared = 0; 
@@ -562,18 +489,14 @@ class Cache(num x, num y, num _cpuN) {
 			if (i != cpu)
 				fork(cache[i].busWatchHelper(addr, rw)); // 
 		}
-		//if (rw == 0) {										// {joj 11/06/16}
-		//	wait(2*TICKS);									// {joj 11/06/16}
-		//	cache[cpu].sharedbus.moveDown(TICKS, 0);		// {joj 11/06/16}
-		//}
+		if (rw == 0) {										// {joj 11/06/16}
+			wait(2*TICKS);
+			if (isshared)									// {joj 11/06/16}
+				cache[cpu].sharedbus.moveDown(TICKS, 0);		// {joj 11/06/16}
+		}
 	}
 
-	//
-	// getBusLock () 
-	//
-	// NB: cpu may already have lock
-	//
-	function getBusLock() { // TODO
+	function getBusLock() { 
  		if (busLock == cpuN)
  			return;
  		while (busLock >= 0)
@@ -581,28 +504,19 @@ class Cache(num x, num y, num _cpuN) {
  		busLock = cpuN;
 	}
 
-	//
-	// releaseBusLock
-	//
-	function releaseBusLock() { // TODO
+	function releaseBusLock() { 
  		busLock = -1;
  		wait(1);		// allow other CPUs get busLock
 	}	
 
-	//
-	// read
-	//
-	// miss: read data from memory (or another cache if it intervenes)
-	//
-	// hit:  read from cache
-	//
 	function update_lru(num set) {
 		time_lru[set] = timeCount;
 		timeCount++;
 	}
 
-	function read(num addr, num animateCPUBus) { // TODO
+	function read(num addr, num animateCPUBus) {
 		busOp.setOpacity(0);
+		resetBus();
 		if (animateCPUBus)
 			cpuabus.moveUp(TICKS, 1);
 		
@@ -629,42 +543,42 @@ class Cache(num x, num y, num _cpuN) {
 		} else {
 			set = s1; 
 		}
+		if (a[set] != -1 && (state[set] == D || state[set] == SD)) {
+			if (state[set]) {
+				
+			}
+			num _addr = a[set];
+			flush(cpuN, _addr);
+		}
 		getBusLock(); 
 		resetBus();
 
 		
-		//showBusOp(sprintf("CPU %d reads a%d from memory", cpuN, addr));
+		
 		busCycles++;
 		busCyclesT.setTxt("bus cycles: %d", busCycles);
 		highlight(set, 1);
-		sharedbus.moveUp(TICKS, 1);						// {joj 11/06/16}
-		sharedBus.setColour(MAGENTA);		
+		abus.moveUp(TICKS, 1);
+		aabus.setColour(BLUE);
+			
 		fork(busWatch(addr, cpuN, 0));
-		wait(TICKS);
+		memory.abus.moveUp(TICKS, 1);
 
 		if (isshared) { 
 			wait(TICKS);
-			sharedbus.moveDown(TICKS, 0);
-			abus.moveDown(TICKS, 0);
+			
 			dbus.moveDown(TICKS, 1);
 			setValues(set, addr, cache[dirtyCPU].d[dirtyCPUSet]);
 			state[set] = SC;
 			stateR[set].setTxt("SC");	
 		} else { 
-			sharedbus.moveDown(TICKS, 1);
-			abus.moveUp(TICKS, 1);
-			aabus.setColour(BLUE);
-			memory.abus.moveUp(TICKS, 1);
-			memory.dbus.moveDown(TICKS, 1);
+			showBusOp(sprintf("CPU %d reads a%d from memory", cpuN, addr));
 			memory.highlight(addr, 1);
+			memory.dbus.moveDown(TICKS, 1);
 			ddbus.setColour(RED);
 			dbus.moveDown(TICKS, 1);
 
 			setValues(set, addr, memory.mem[addr]);
-			//a[set] = addr;
-			//aR[set].setTxt("a%d", addr);
-			//d[set] = memory.mem[addr];
-			//dR[set].setTxt("%d", d[set]);
 			state[set] = isshared ? SC : VE;
 			stateR[set].setTxt(isshared ? "SC" : "VE");
  		}
@@ -674,107 +588,12 @@ class Cache(num x, num y, num _cpuN) {
 		releaseBusLock();				// can release bus before...
 		if (animateCPUBus)				// returning data to CPU
 			cpudbus.moveDown(TICKS, 1);
-
-		//abus.moveUp(TICKS, 1);
-		//aabus.setColour(BLUE);
-		//memory.abus.moveUp(TICKS, 0);
- 		//fork(busWatch(addr, cpuN, 0));				// {joj 11/06/16}
- 		//wait(TICKS);								// {joj 11/06/16}
-
-		//if (dirtyCPU >= 0) { 
-
-		//
-		// handle read miss
-		//
-		// may need to flush MODIFIED cache line
-		// read data from memory
-		// act fairly, release bus between flush and read cycles
-		//
-	
-		//getBusLock(); // ???? ???? ?????? ???????
-		//resetBus();	// 
-			
-		//
-		// flush cache line if MODIFIED
-		//
-		//if ((state[set] == MODIFIED)){// && (buglevel != 2)) 
-			//showBusOp(sprintf("CPU %d flushes a%d from its cache to memory", cpuN, addr));
-			//flush(addr);
-			//busCycles++;
-			//busCyclesT.setTxt("bus cycles: %d", busCycles);
-			//releaseBusLock();	// allows other CPUs get bus between flush and read cycles
-			//getBusLock();		// get bus again (????? ???? ???????)
-			//resetBus();
-		//}
-		
-
-		//showBusOp(sprintf("CPU %d reads a%d from memory", cpuN, addr));
-		//busCycles++;
-		//busCyclesT.setTxt("bus cycles: %d", busCycles);
-		//highlight(set, 1);
-		//abus.moveUp(TICKS, 1);
-		//aabus.setColour(BLUE);
-		//memory.abus.moveUp(TICKS, 0);
- 		//fork(busWatch(addr, cpuN, 0));				// {joj 11/06/16}
- 		//wait(TICKS);								// {joj 11/06/16}
-
-		//if (dirtyCPU >= 0) { 
-		
-			//
-			// read data from another cache
-			//
-			//wait(TICKS);							// {joj 11/06/16}
-			//showBusOp(sprintf("CPU %d reads a%d from memory - CPU %d intervenes and supplies data from its cache", cpuN, addr, dirtyCPU));
-			//ddbus.setColour(RED);
-			//memory.dbus.moveUp(TICKS, 0);
-			//dbus.moveDown(TICKS, 1);
-			//memory.mem[addr] = cache[dirtyCPU].d[set];
-			//memory.stale[addr] = 0;
-			//memory.memR[addr].setBrush(whiteBrush);
-			//memory.memR[addr].setTxt("address: a%d data: %d", addr, memory.mem[addr]);
-			//memory.highlight(addr, 1);
-
-		//} else {
-
-			//
-			// read data from memory
-			//
-			//memory.highlight(addr, 1);
-			//memory.dbus.moveDown(TICKS, 1);
-			//ddbus.setColour(RED);
-			//dbus.moveDown(TICKS, 1);
-
- 		//}
-
-		//a[set] = addr;
-		//aR[set].setTxt("a%d", addr);
-		//d[set] = memory.mem[addr];
-		//dR[set].setTxt("%d", d[set]);
-		//state[set] = isshared ? SHARED : EXCLUSIVE;
-		//stateR[set].setTxt(isshared ? "S" : "E");
-		//releaseBusLock();				// can release bus before...
-		//if (animateCPUBus)				// returning data to CPU
-			//cpudbus.moveDown(TICKS, 1);
-
 	}
-	
 
-
-	//
-	// CPU cache write
-	//
-	// miss: read data from memory (or another cache if it intervenes)
-	//		 write data
-	//
-	// hit:  if EXCLUSIVE or MODIFIED write to cache
-	//		 if SHARED write through to memory and ...
-	//		 enter EXCLUSIVE state (other caches will INVALIDTE their copies)
-	//
-	function write(num addr) { // TODO
+	function write(num addr) { 
 
 		busOp.setOpacity(0);
-
-		//num set = addr % NSET;
+		resetBus();
 		num set = -1;
 		num s1 = addr % ASS;
 		num s2 = s1 + 2;
@@ -790,7 +609,6 @@ class Cache(num x, num y, num _cpuN) {
 		wValue++;
 
 		// write-miss 
-	 
 		if (set == -1) {
 			getBusLock(); 
 			resetBus();
@@ -803,6 +621,7 @@ class Cache(num x, num y, num _cpuN) {
 			set = s2;
 		}
 		highlight(set, 1);
+
 		//
 		// write hit (D)
 		//
@@ -829,9 +648,10 @@ class Cache(num x, num y, num _cpuN) {
 			setValues(set, addr, wValue);
 			state[set] = SD;
 			stateR[set].setTxt("SD");
-			
 			getBusLock(); 
 			resetBus();
+			busCycles++;
+			busCyclesT.setTxt("bus cycles: %d", busCycles);
 			abus.moveUp(TICKS, 0);
 			dbus.moveUp(TICKS, 0);
 			sharedbus.moveUp(TICKS, 1);
@@ -839,67 +659,8 @@ class Cache(num x, num y, num _cpuN) {
 			ddbus.setColour(RED);	
 			sharedBus.setColour(MAGENTA);	
 			fork(busWatch(addr, cpuN, 1));
-			return;
+			releaseBusLock();
 		}
-
-		//while (1) {
-
-			//
-			// write miss 
-			// read data from memory (may need to flush MODIFIED cache line)
-			//
-			//if ((state[set] == INVALID) || (a[set] != addr))
-				//read(addr, 0); 
-
-			//if (state[set] == SHARED) {
-
-				//
-				// write through
-				// get bus and check that data has not been invalidated in the mean time
-				//
-				//getBusLock();
-				//if (state[set] == INVALID)
-					//continue;		// need to read data again
-
-				//resetBus();
-
-				//showBusOp(sprintf("CPU %d writes %d to a%d in memory", cpuN, wValue, addr));
-				//busCycles++;
-				//busCyclesT.setTxt("bus cycles: %d", busCycles);
-				//setValues(set, addr, wValue);
-				//abus.moveUp(TICKS, 0);
-				//dbus.moveUp(TICKS, 1);
-				//aabus.setColour(BLUE);
-				//ddbus.setColour(RED);
-				//memory.abus.moveUp(TICKS, 0);
-				//memory.dbus.moveUp(TICKS, 0);
-				//fork(busWatch(addr, cpuN, 1));
-				//state[set] = EXCLUSIVE;
-				//stateR[set].setTxt("E");
-				//memory.mem[addr] = d[set];
-				//memory.memR[addr].setTxt("address: a%d data: %d", addr, memory.mem[addr]);
-				//memory.highlight(addr, 1);
-				//releaseBusLock();
-				//break;
-
-			//} else if ((state[set] == EXCLUSIVE) || (state[set] == MODIFIED)) {
-
-				//
-				// write to cache
-				//
-				//setValues(set, addr, wValue);
-				//state[set] = MODIFIED;
-				//stateR[set].setTxt("M");
-				//memory.stale[addr] = 1;
-				//memory.memR[addr].setBrush(gray192Brush);
-				//busOp.setOpacity(0);
-				//break;
-
-			//}
-
-			// need to read data again if state[set] == INVALID
-
-		//}
 	}
 }
 
@@ -1037,7 +798,6 @@ class CPU(num x, num y, num _cpuN) {
 	// cpuAction
 	//
 	function cpuAction() {
-		//debug("cpuAction");
 		if (selected && buttonLock == 0)
 			selected.cpuButtonAction();
 	}
