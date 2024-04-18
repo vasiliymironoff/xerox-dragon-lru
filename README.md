@@ -1,27 +1,13 @@
 # xerox-dragon-lru
  Визуализация протокола кеш-когерентности xerox dragon с политикой замещения lru
 
-Todo:
-- getBusLock (получение номера текущего заблокированного процессора)
-- releaseBusLock (сброс блокировки всех процессоров)
-- 
+## Запуск
+- заходим в program/caches/ и открываем файл "dragon 100.html" в браузере
 
-Вопросы:
-- Чем busWatchHelper отличается от busWatch? 
-busWatch: для каждого кеша не своего процессора запускает busWatchHelper. 
-Потом если чтение, то анимация розовой шины вниз. 
-busWatchHelper: 
-
-Слои шин:
-Принадлежат кешу:
-	0 слой (процессор): cpuabus, cpudbus
-	1 слой (кеш): abus, dbus, sharedbus
-Глобальная видимость:
-	2 слой (шины) ddbus, aabus, sharedBus
-
-Принадлежат memory:
-	3 слой (память) abus, dbus
-
+## Компиляция 
+- скачиваем VivioIDE (https://www.scss.tcd.ie/Jeremy.Jones/VivioJS/vivio.htm) 
+- открываем файл program/caches/dragon.viv 
+- компилируем и запускаем 
 
 ## Задание
 
