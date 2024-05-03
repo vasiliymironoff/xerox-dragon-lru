@@ -159,12 +159,11 @@ const num VE = 1;
 const num SD = 2;
 const num SC = 3;
 
-num wValue				= 0;		// value written into cache
+//num wValue				= -1;		// value written into cache
 
 num dirtyCPU			= -1;		// indicates CPU supplies dirty data
 num dirtyCPUSet	 = -1;
 num isshared			= 0;		// indicates a shared read
-
 num busLock				= -1;		// -1 or number of CPU with bus lock
 
 num busCycles 			= 0;		// bus cycles counter
@@ -232,6 +231,7 @@ class BusArrow(num x, num y, num w, num _l, num bgColour, num fgColour) {
 
 }
 
+
 //
 // Memory
 //
@@ -249,7 +249,7 @@ class Memory(num _x, num _y) {
 	const num bgap = 3;
 	const num bw = MEMW-2*bgap;
 	const num bh = (MEMH-(NADDR+1)*bgap)/NADDR;
-
+	
 	Rectangle r = Rectangle2(0, 0, blackPen, gray192Brush, x, y, MEMW, MEMH);
 	r.setRounded(4, 4);
 	Rectangle2(0, 0, 0, 0, x, y-30, MEMW, 25, redPen, labelFont, "MEMORY");
@@ -260,12 +260,14 @@ class Memory(num _x, num _y) {
 	for (num i = 0; i < NADDR; i++) {
  		mem[i] = 0;
  		stale[i] = 0;
- 		memR[i] = Rectangle2(0, 0, blackPen, whiteBrush, x+bgap, y+(i+1)*bgap+i*bh, bw, bh, blackPen, bf0, "address: a%d data: %d", i, mem[i]);
+ 		//memR[i] = Rectangle2(0, 0, blackPen, whiteBrush, x+bgap, y+(i+1)*bgap+i*bh, bw, bh, blackPen, bf0, "address: a%d data: %d", i, mem[i]); // Note 5
+		memR[i] = Rectangle2(0, 0, blackPen, i % 2 == 0 ? whiteBrush : gray224Brush, x+bgap, y+(i+1)*bgap+i*bh, bw, bh, blackPen, bf0, "address: a%d data: %d", i, mem[i]); // Note 5
  		memR[i].setRounded(2, 2);
 	}
 
 	function highlight(num addr, num flag) {
-		memR[addr].setBrush((flag) ? greenBrush : (stale[addr]) ? gray192Brush : whiteBrush);
+		//memR[addr].setBrush((flag) ? greenBrush : (stale[addr]) ? gray192Brush : whiteBrush);
+		memR[addr].setBrush((flag) ? greenBrush : (stale[addr]) ? gray192Brush : addr % 2 == 0 ? whiteBrush : gray224Brush); // Note 5
 	}
 
 	function reset() {
@@ -319,7 +321,6 @@ class Cache(num x, num y, num _cpuN) {
 
 	Rectangle aR[NSET], dR[NSET], stateR[NSET];
 	num a[NSET], d[NSET], state[NSET], time_lru[NSET];
-
 	const num cpuN = _cpuN;
 
 	const num bgap = 3;
@@ -327,7 +328,8 @@ class Cache(num x, num y, num _cpuN) {
 	const num bw1 = (CACHEW-4*bgap-bw0)/2;
 	const num bh = (CACHEH-(NSET+1)*bgap)/NSET;
 	
-
+	num wValue[NADDR];
+	
 	BusArrow sharedbus = BusArrow(x+bgap+bw0/2, SBUSY+SBUSW/2, SBUSW, y-SBUSY-SBUSW/2, GRAY32, MAGENTA);
 	BusArrow abus = BusArrow(x+2*bgap+bw0+bw1/2, ABUSY+ABUSW/2, ABUSW, y-ABUSY-ABUSW/2, GRAY32, BLUE);
 	BusArrow dbus = BusArrow(x+3*bgap+bw0+3*bw1/2, DBUSY+DBUSW/2, DBUSW, y-DBUSY-DBUSW/2, GRAY32, RED);
@@ -341,26 +343,29 @@ class Cache(num x, num y, num _cpuN) {
 	busOp.moveToFront();
 
 	for (num i = 0; i < NSET; i++) {
+
 		state[i] = I;
-		stateR[i] = Rectangle2(0, 0, blackPen, whiteBrush, x+bgap, y+(i+1)*bgap+i*bh, bw0, bh, blackPen, bf0, "I");
+		stateR[i] = Rectangle2(0, 0, blackPen, i % 2 == 0 ? whiteBrush : gray224Brush, x+bgap, y+(i+1)*bgap+i*bh, bw0, bh, blackPen, bf0); // Note 3, Note 5
 		stateR[i].setRounded(2,2);
 		a[i] = -1;
-		aR[i] = Rectangle2(0, 0, blackPen, whiteBrush, x+2*bgap+bw0, y+(i+1)*bgap+i*bh, bw1, bh, blackPen, bf0);
+		aR[i] = Rectangle2(0, 0, blackPen, i % 2 == 0 ? whiteBrush : gray224Brush, x+2*bgap+bw0, y+(i+1)*bgap+i*bh, bw1, bh, blackPen, bf0); // Note 5
 		aR[i].setRounded(2, 2);
 		d[i] = 0;
-		dR[i] = Rectangle2(0, 0, blackPen, whiteBrush, x+3*bgap+bw0+bw1, y+(i+1)*bgap+i*bh, bw1, bh, blackPen, bf0);
+		dR[i] = Rectangle2(0, 0, blackPen, i % 2 == 0 ? whiteBrush : gray224Brush, x+3*bgap+bw0+bw1, y+(i+1)*bgap+i*bh, bw1, bh, blackPen, bf0); // Note 5
 		dR[i].setRounded(2, 2);
 	}
 	
 	for (i = 0; i < NADDR; i++) {
 		time_lru[i] = -1;
+		wValue[i] = 0;
 	}
+
 	//
 	// helper function to set values
 	//
 	function setValues(num set, num addr, num data) {
 		a[set] = addr;
-		aR[set].setTxt("a%d", addr);
+		aR[set].setTxt("%d%d%d", (addr >> 3) % 2, (addr >> 2) %2, (addr >> 1) %2); // Note 6
 		d[set] = data;
 		dR[set].setTxt("%d", data);
 	}
@@ -369,7 +374,7 @@ class Cache(num x, num y, num _cpuN) {
 	// highlight cache line
 	//
 	function highlight(num set, num flag) {
-		Brush brush = flag ? greenBrush : whiteBrush;
+		Brush brush = flag ? greenBrush : set % 2 == 0 ? whiteBrush : gray224Brush; // Note 5
 		stateR[set].setBrush(brush);
 		aR[set].setBrush(brush);
 		dR[set].setBrush(brush);
@@ -407,7 +412,7 @@ class Cache(num x, num y, num _cpuN) {
 	//
 	// flush data from cache line to memory
 	// 
-	function flush(num cpuN, num addr) { // TODO 
+	function flush(num cpuN, num addr) {  
 		num set = -1;
 		num s1 = addr % ASS;
 		num s2 = s1 + 2;
@@ -440,7 +445,37 @@ class Cache(num x, num y, num _cpuN) {
 	//
 	// each cache must watch the bus and update its state according to the protocol
 	//
-	function busWatchHelper(num addr, num rw) { // TODO rw == 0: read, rw != 0: write
+	function busWatchHelper(num addr, num rw, num wValue, num addrPrev) { // rw == 0: read, rw != 0: write
+		if (addrPrev > -1) {
+			num setPrev = -1;
+			num s1Prev = addrPrev % ASS;
+			num s2Prev = s1Prev + 2;
+			if (a[s1Prev] == addrPrev) {
+				setPrev = s1Prev;
+			} else if (a[s2Prev] == addrPrev){
+				setPrev = s2Prev;
+			}
+		
+			num hitPrev = setPrev >= 0;
+			if (hitPrev) {
+				num otherHit = 0;
+				for (num i = 0; i < 4; i++) {
+					if (i != cpuN && (cache[i].a[s1Prev] == addrPrev || cache[i].a[s2Prev] == addrPrev)) {
+						otherHit++;
+					}
+				}
+				if (otherHit == 1) {
+					if (state[setPrev] == SC) {
+						state[setPrev] = VE;
+						stateR[setPrev].setTxt("VE");
+					}
+					if (state[setPrev] == SD) {
+						state[setPrev] = D;
+						stateR[setPrev].setTxt("D");
+					}
+				}
+			}
+		}
 		num set = -1;
 		num s1 = addr % ASS;
 		num s2 = s1 + 2;
@@ -454,11 +489,18 @@ class Cache(num x, num y, num _cpuN) {
 		
 		if (!hit) {
 			abus.moveDown(TICKS, 1);
-		}
+		} 
 		if (hit && rw == 0 && state[set] != SC) {
 			abus.moveDown(TICKS, 1);
-			state[set] = SD;	
-			stateR[set].setTxt("SD"); 
+				
+			if (state[set] == D) {
+				state[set] = SD;
+				stateR[set].setTxt("SD");  
+			} 
+			if (state[set] == VE) {
+				state[set] = SC;	
+				stateR[set].setTxt("SC"); // note 1: SD -> SC
+			}
 			isshared = 1;
 			dirtyCPU = cpuN;
 			dirtyCPUSet = set;
@@ -477,17 +519,17 @@ class Cache(num x, num y, num _cpuN) {
 			sharedbus.moveDown(TICKS, 0);
 			abus.moveDown(TICKS, 0);
 			dbus.moveDown(TICKS, 1);
-			setValues(set, addr, wValue);
+			setValues(set, addr, wValue); // Note 2
 			
 		}
 	}
 
-	function busWatch(num addr, num cpu, num rw) { // TODO
+	function busWatch(num addr, num cpu, num rw, num wValue, num addrPrev) { 
 		dirtyCPU = -1;
 		isshared = 0; 
 		for (num i = 0; i < NCPU; i++) {
 			if (i != cpu)
-				fork(cache[i].busWatchHelper(addr, rw)); // 
+				fork(cache[i].busWatchHelper(addr, rw, wValue, addrPrev)); 
 		}
 		if (rw == 0) {										// {joj 11/06/16}
 			wait(2*TICKS);
@@ -515,14 +557,17 @@ class Cache(num x, num y, num _cpuN) {
 	}
 
 	function read(num addr, num animateCPUBus) {
+		// if animateCPUBus == 0, then occur preemption
 		busOp.setOpacity(0);
 		resetBus();
 		if (animateCPUBus)
 			cpuabus.moveUp(TICKS, 1);
 		
+		num addrPrev = -1; // if preemption don`t occur
 		num set = -1;
 		num s1 = addr % ASS;
 		num s2 = s1 + 2;
+
 		if (a[s1] == addr) {
 			set = s1;
 		} else if (a[s2] == addr) {
@@ -539,14 +584,13 @@ class Cache(num x, num y, num _cpuN) {
 		} 
 		
 		if (time_lru[s1] > time_lru[s2]) {
+			addrPrev = a[s2];
 			set = s2;
 		} else {
+			addrPrev = a[s1];
 			set = s1; 
 		}
 		if (a[set] != -1 && (state[set] == D || state[set] == SD)) {
-			if (state[set]) {
-				
-			}
 			num _addr = a[set];
 			flush(cpuN, _addr);
 		}
@@ -554,14 +598,13 @@ class Cache(num x, num y, num _cpuN) {
 		resetBus();
 
 		
-		
 		busCycles++;
 		busCyclesT.setTxt("bus cycles: %d", busCycles);
 		highlight(set, 1);
 		abus.moveUp(TICKS, 1);
 		aabus.setColour(BLUE);
-			
-		fork(busWatch(addr, cpuN, 0));
+		
+		fork(busWatch(addr, cpuN, 0, -1, addrPrev));
 		memory.abus.moveUp(TICKS, 1);
 
 		if (isshared) { 
@@ -579,8 +622,8 @@ class Cache(num x, num y, num _cpuN) {
 			dbus.moveDown(TICKS, 1);
 
 			setValues(set, addr, memory.mem[addr]);
-			state[set] = isshared ? SC : VE;
-			stateR[set].setTxt(isshared ? "SC" : "VE");
+			state[set] = VE;
+			stateR[set].setTxt("VE");
  		}
 
 		
@@ -606,7 +649,8 @@ class Cache(num x, num y, num _cpuN) {
 		cpuabus.moveUp(TICKS, 1);
 		
 
-		wValue++;
+		//wValue++; done new increment for any cache and any address
+		wValue[addr]++; // Note 2
 
 		// write-miss 
 		if (set == -1) {
@@ -626,7 +670,8 @@ class Cache(num x, num y, num _cpuN) {
 		// write hit (D)
 		//
 		if (set >= 0 && state[set] == D) {
-			setValues(set, addr, wValue);
+			update_lru(set);
+			setValues(set, addr, wValue[addr]);// Note 2
 		}
 
 		// 
@@ -634,9 +679,10 @@ class Cache(num x, num y, num _cpuN) {
 		// 
 
 		if (set >= 0 && state[set] == VE) {
+			update_lru(set);
 			state[set] = D;
 			stateR[set].setTxt("D");
-			setValues(set, addr, wValue);
+			setValues(set, addr, wValue[addr]);// Note 2
 		}
 		
 
@@ -645,7 +691,8 @@ class Cache(num x, num y, num _cpuN) {
 		// 
 
 		if ((a[set] == addr) && ((state[set] == SD) || (state[set] == SC))) {
-			setValues(set, addr, wValue);
+			update_lru(set);
+			setValues(set, addr, wValue[addr]); // Note 2
 			state[set] = SD;
 			stateR[set].setTxt("SD");
 			getBusLock(); 
@@ -658,7 +705,7 @@ class Cache(num x, num y, num _cpuN) {
 			aabus.setColour(BLUE);
 			ddbus.setColour(RED);	
 			sharedBus.setColour(MAGENTA);	
-			fork(busWatch(addr, cpuN, 1));
+			fork(busWatch(addr, cpuN, 1, wValue[addr], -1)); // note 7, premption don`t occur
 			releaseBusLock();
 		}
 	}
@@ -808,6 +855,8 @@ class CPU(num x, num y, num _cpuN) {
  	for (num i = 0; i < NADDR; i++) {
  		rb[i] = CPUButton(0, x+bgap, y+(i+1)*bgap+i*bh, i);
  		wb[i] = CPUButton(1, x+bgap+bw+bgap, y+(i+1)*bgap+i*bh, i);
+		rb[i].setBrush(i % 2 == 0 ? whiteBrush : gray224Brush);
+		wb[i].setBrush(i % 2 == 0 ? whiteBrush : gray224Brush);
  	}
 
 }
